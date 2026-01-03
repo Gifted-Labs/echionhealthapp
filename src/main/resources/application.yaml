@@ -1,0 +1,76 @@
+spring:
+  application:
+    name: echoin-health-backend
+  
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  
+  jpa:
+    hibernate:
+      ddl-auto: ${JPA_DDL_AUTO:update}
+    show-sql: ${JPA_SHOW_SQL:false}
+    properties:
+      hibernate:
+        format_sql: ${JPA_FORMAT_SQL:true}
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          time_zone: UTC
+  
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    include-message: always
+    include-binding-errors: always
+  servlet:
+    context-path: /api
+
+# JWT Configuration
+jwt:
+  secret: ${JWT_SECRET}
+  expiration: ${JWT_EXPIRATION:3600000}  # 1 hour in milliseconds
+  refresh-expiration: ${JWT_REFRESH_EXPIRATION:86400000}  # 24 hours in milliseconds
+  issuer: ${JWT_ISSUER:echoin-health}
+
+# Email Configuration
+email:
+  from: ${EMAIL_FROM:noreply@echoinhealth.com}
+  resend:
+    api-key: ${RESEND_API_KEY}
+    api-url: https://api.resend.com/emails
+
+# Application Configuration
+app:
+  base-url: ${BASE_URL:http://localhost:8080}
+  verification-token:
+    expiration-hours: ${TOKEN_VERIFICATION_HOURS:24}
+  password-reset-token:
+    expiration-hours: ${TOKEN_PASSWORD_RESET_HOURS:1}
+
+# Logging
+logging:
+  level:
+    com.giftedlabs.echoinhealthbackend: DEBUG
+    org.springframework.security: DEBUG
+    org.hibernate.SQL: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+
+# SpringDoc OpenAPI Configuration
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
