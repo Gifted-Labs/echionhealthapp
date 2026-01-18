@@ -57,9 +57,14 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
                                 "/v3/api-docs/**",
+                                "/swagger-resources/**",
+                                "/configuration/**",
                                 "/webjars/**",
                                 "/error")
                         .permitAll()
+
+                        // Admin endpoints require ADMIN or SUPER_ADMIN role
+                        .requestMatchers("/admin/**").hasAnyRole("ADMIN", "SUPER_ADMIN")
 
                         // All other endpoints require authentication
                         .anyRequest().authenticated())
@@ -77,7 +82,8 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of("http://localhost:3000", "http://localhost:4200"));
+        configuration
+                .setAllowedOrigins(List.of("http://localhost:3000", "http://localhost:4200", "http://localhost:8000"));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setExposedHeaders(Arrays.asList("Authorization"));

@@ -5,5 +5,6 @@ package com.giftedlabs.echoinhealthbackend.entity;
  */
 public enum Role {
     SONOGRAPHER, // Healthcare professional who performs ultrasound scans
-    ADMIN // System administrator with elevated privileges
+    ADMIN, // System administrator with elevated privileges
+    SUPER_ADMIN // Super administrator with full system access
 }

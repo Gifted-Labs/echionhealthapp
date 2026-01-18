@@ -1,0 +1,153 @@
+{
+    "module": "SonoVault",
+    "description": "Document Management & Search System Logic Flow",
+    "workflows": [
+        {
+            "workflow_name": "Document Upload Process",
+            "trigger": "POST /api/vault/upload",
+            "inputs": [
+                "MultipartFile (Word/PDF)",
+                "User Authorization"
+            ],
+            "steps": [
+                {
+                    "step": 1,
+                    "component": "VaultController",
+                    "action": "Receive request & Extract User ID from Token"
+                },
+                {
+                    "step": 2,
+                    "component": "ReportService",
+                    "action": "Validate User existence"
+                },
+                {
+                    "step": 3,
+                    "component": "FileStorageService",
+                    "sub_steps": [
+                        "Detect Storage Config (Local vs Railway S3)",
+                        "Generate Unique Filename ({userId}/{uuid}_{originalName})",
+                        "Stream file to storage destination",
+                        "Return relative file path"
+                    ]
+                },
+                {
+                    "step": 4,
+                    "component": "TextExtractor",
+                    "action": "Detect Content Type (Apache Tika)",
+                    "branches": [
+                        {
+                            "condition": "application/pdf",
+                            "action": "Extract text using Apache PDFBox"
+                        },
+                        {
+                            "condition": "application/msword | .docx",
+                            "action": "Extract text using Apache POI"
+                        }
+                    ]
+                },
+                {
+                    "step": 5,
+                    "component": "ReportService",
+                    "action": "Build Report Entity",
+                    "data_mapping": {
+                        "originalFilename": "file.getOriginalFilename()",
+                        "filePath": "returned from StorageService",
+                        "extractedText": "returned from TextExtractor",
+                        "findings": "Default 'Uploaded Document...'"
+                    }
+                },
+                {
+                    "step": 6,
+                    "component": "ReportRepository",
+                    "action": "save(report)",
+                    "db_transaction": "INSERT INTO reports ..."
+                },
+                {
+                    "step": 7,
+                    "component": "ReportRepository",
+                    "action": "updateSearchVector(reportId)",
+                    "db_query": "UPDATE reports SET search_vector = to_tsvector(...) WHERE id = ?"
+                },
+                {
+                    "step": 8,
+                    "component": "AuditService",
+                    "action": "Log upload event"
+                }
+            ],
+            "output": "ReportResponse JSON"
+        },
+        {
+            "workflow_name": "Full-Text Search Process",
+            "trigger": "POST /api/vault/search",
+            "inputs": [
+                "Search Query",
+                "Filters (Date, Type, etc.)"
+            ],
+            "steps": [
+                {
+                    "step": 1,
+                    "component": "VaultController",
+                    "action": "Delegates to ReportService"
+                },
+                {
+                    "step": 2,
+                    "component": "ReportRepository",
+                    "action": "Execute Native SQL Query",
+                    "logic": [
+                        "Filter by User ID",
+                        "Apply optional filters (ScanType, DateRange)",
+                        "Perform Full-Text Match: search_vector @@ to_tsquery('english', :query)",
+                        "Calculate Rank: ts_rank(search_vector, ...)"
+                    ]
+                },
+                {
+                    "step": 3,
+                    "component": "Database",
+                    "action": "Return paginated, sorted results"
+                },
+                {
+                    "step": 4,
+                    "component": "ReportService",
+                    "action": "Map Entities to ReportResponse DTOs"
+                }
+            ],
+            "output": "Page<ReportResponse> JSON"
+        },
+        {
+            "workflow_name": "Manual Report Creation",
+            "trigger": "POST /api/vault/reports",
+            "inputs": [
+                "CreateReportRequest JSON (Patient Data, Findings, etc.)"
+            ],
+            "steps": [
+                {
+                    "step": 1,
+                    "component": "ReportService",
+                    "action": "Map DTO to Report Entity"
+                },
+                {
+                    "step": 2,
+                    "component": "ReportRepository",
+                    "action": "save(report)"
+                },
+                {
+                    "step": 3,
+                    "component": "ReportRepository",
+                    "action": "updateSearchVector(reportId)",
+                    "note": "Indexes text fields like 'findings', 'clinical_history', 'impression' for search"
+                },
+                {
+                    "step": 4,
+                    "component": "AuditService",
+                    "action": "Log creation event"
+                }
+            ],
+            "output": "ReportResponse JSON"
+        }
+    ],
+    "storage_strategy": {
+        "dev": "Local Filesystem (./vault-storage)",
+        "prod": "Railway Object Storage (S3 Protocol)"
+    },
+    "search_technology": "PostgreSQL Native Full-Text Search (tsvector, GIN Index)"
+}
