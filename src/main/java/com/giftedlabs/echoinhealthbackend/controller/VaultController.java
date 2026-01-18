@@ -145,35 +145,48 @@ public class VaultController {
         }
 
         @GetMapping("/reports/{id}/download")
-        @Operation(summary = "Download file", description = "Download the original file associated with a report")
-        public ResponseEntity<Resource> downloadFile(
+        @Operation(summary = "Download original file", description = "Download the ORIGINAL uploaded file (PDF/Word). Returns 404 if report was created manually.")
+        public ResponseEntity<?> downloadFile(
                         @PathVariable String id,
-                        Authentication authentication) throws IOException {
+                        Authentication authentication) {
 
                 String userId = getUserId(authentication);
                 ReportResponse report = reportService.getReport(id, userId);
 
-                if (report.getFilePath() == null) {
-                        return ResponseEntity.notFound().build();
+                // Check if this report has an associated file
+                if (report.getFilePath() == null || report.getFilePath().isBlank()) {
+                        return ResponseEntity.status(404)
+                                        .body(ApiResponse.<Void>builder()
+                                                        .success(false)
+                                                        .message("No original file associated with this report. Use /pdf to generate a PDF from the report data.")
+                                                        .build());
                 }
 
-                // Get file stream
-                java.io.InputStream inputStream = fileStorageService.getFileStream(report.getFilePath(),
-                                report.getStorageType());
-                InputStreamResource resource = new InputStreamResource(inputStream);
+                try {
+                        // Get file stream
+                        java.io.InputStream inputStream = fileStorageService.getFileStream(report.getFilePath(),
+                                        report.getStorageType());
+                        InputStreamResource resource = new InputStreamResource(inputStream);
 
-                return ResponseEntity.ok()
-                                .header(HttpHeaders.CONTENT_DISPOSITION,
-                                                "attachment; filename=\"" + report.getOriginalFilename() + "\"")
-                                .contentType(MediaType.parseMediaType(
-                                                report.getFileType() != null ? report.getFileType()
-                                                                : "application/octet-stream"))
-                                .contentLength(report.getFileSize())
-                                .body(resource);
+                        return ResponseEntity.ok()
+                                        .header(HttpHeaders.CONTENT_DISPOSITION,
+                                                        "attachment; filename=\"" + report.getOriginalFilename() + "\"")
+                                        .contentType(MediaType.parseMediaType(
+                                                        report.getFileType() != null ? report.getFileType()
+                                                                        : "application/octet-stream"))
+                                        .contentLength(report.getFileSize())
+                                        .body(resource);
+                } catch (IOException e) {
+                        return ResponseEntity.status(500)
+                                        .body(ApiResponse.<Void>builder()
+                                                        .success(false)
+                                                        .message("Failed to retrieve file: " + e.getMessage())
+                                                        .build());
+                }
         }
 
         @GetMapping("/reports/{id}/pdf")
-        @Operation(summary = "Download PDF", description = "Generate and download the report as a PDF file")
+        @Operation(summary = "Download PDF", description = "Generate and DOWNLOAD the report as a PDF file (attachment)")
         public ResponseEntity<byte[]> downloadPdf(
                         @PathVariable String id,
                         Authentication authentication) throws IOException {
@@ -184,6 +197,22 @@ public class VaultController {
 
                 return ResponseEntity.ok()
                                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                                .contentType(MediaType.APPLICATION_PDF)
+                                .contentLength(pdfBytes.length)
+                                .body(pdfBytes);
+        }
+
+        @GetMapping("/reports/{id}/print")
+        @Operation(summary = "Print/Preview PDF", description = "Generate and display the report as PDF INLINE (for browser preview/print)")
+        public ResponseEntity<byte[]> printPdf(
+                        @PathVariable String id,
+                        Authentication authentication) throws IOException {
+
+                String userId = getUserId(authentication);
+                byte[] pdfBytes = reportPdfService.generateReportPdf(id, userId);
+
+                return ResponseEntity.ok()
+                                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"report.pdf\"")
                                 .contentType(MediaType.APPLICATION_PDF)
                                 .contentLength(pdfBytes.length)
                                 .body(pdfBytes);
