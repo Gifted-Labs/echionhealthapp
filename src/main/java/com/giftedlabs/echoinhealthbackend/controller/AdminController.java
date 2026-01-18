@@ -4,6 +4,7 @@ import com.giftedlabs.echoinhealthbackend.dto.admin.*;
 import com.giftedlabs.echoinhealthbackend.dto.common.ApiResponse;
 import com.giftedlabs.echoinhealthbackend.entity.User;
 import com.giftedlabs.echoinhealthbackend.exception.ResourceNotFoundException;
+import com.giftedlabs.echoinhealthbackend.repository.ReportRepository;
 import com.giftedlabs.echoinhealthbackend.repository.UserRepository;
 import com.giftedlabs.echoinhealthbackend.service.AdminService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -31,174 +32,191 @@ import java.util.List;
 @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
 public class AdminController {
 
-    private final AdminService adminService;
-    private final UserRepository userRepository;
+        private final AdminService adminService;
+        private final UserRepository userRepository;
+        private final ReportRepository reportRepository;
 
-    // ========== Dashboard ==========
+        // ========== Dashboard ==========
 
-    @GetMapping("/dashboard")
-    @Operation(summary = "Dashboard stats", description = "Get comprehensive system statistics")
-    public ResponseEntity<ApiResponse<DashboardStatsResponse>> getDashboard() {
-        DashboardStatsResponse stats = adminService.getDashboardStats();
-        return ResponseEntity.ok(ApiResponse.<DashboardStatsResponse>builder()
-                .success(true)
-                .data(stats)
-                .build());
-    }
+        @GetMapping("/dashboard")
+        @Operation(summary = "Dashboard stats", description = "Get comprehensive system statistics")
+        public ResponseEntity<ApiResponse<DashboardStatsResponse>> getDashboard() {
+                DashboardStatsResponse stats = adminService.getDashboardStats();
+                return ResponseEntity.ok(ApiResponse.<DashboardStatsResponse>builder()
+                                .success(true)
+                                .data(stats)
+                                .build());
+        }
 
-    // ========== User Management ==========
+        // ========== System Maintenance ==========
 
-    @GetMapping("/users")
-    @Operation(summary = "List users", description = "Get paginated list of all users with optional filters")
-    public ResponseEntity<ApiResponse<Page<AdminUserResponse>>> getAllUsers(
-            @RequestParam(required = false) String search,
-            @RequestParam(required = false) String role,
-            @RequestParam(required = false) Boolean locked,
-            @RequestParam(required = false) Boolean verified,
-            Pageable pageable) {
+        @PostMapping("/rebuild-search-vectors")
+        @PreAuthorize("hasRole('SUPER_ADMIN')")
+        @Operation(summary = "Rebuild search vectors", description = "Rebuild all search vectors for optimized search (SUPER_ADMIN only)")
+        public ResponseEntity<ApiResponse<String>> rebuildSearchVectors(Authentication authentication) {
+                User adminUser = getAdminUser(authentication);
+                reportRepository.rebuildAllSearchVectors();
+                return ResponseEntity.ok(ApiResponse.<String>builder()
+                                .success(true)
+                                .message("Search vectors rebuilt successfully")
+                                .data("All report search vectors have been rebuilt")
+                                .build());
+        }
 
-        AdminUserSearchRequest request = AdminUserSearchRequest.builder()
-                .search(search)
-                .role(role != null ? com.giftedlabs.echoinhealthbackend.entity.Role.valueOf(role) : null)
-                .locked(locked)
-                .verified(verified)
-                .build();
+        // ========== User Management ==========
 
-        Page<AdminUserResponse> users = adminService.getAllUsers(request, pageable);
-        return ResponseEntity.ok(ApiResponse.<Page<AdminUserResponse>>builder()
-                .success(true)
-                .data(users)
-                .build());
-    }
+        @GetMapping("/users")
+        @Operation(summary = "List users", description = "Get paginated list of all users with optional filters")
+        public ResponseEntity<ApiResponse<Page<AdminUserResponse>>> getAllUsers(
+                        @RequestParam(required = false) String search,
+                        @RequestParam(required = false) String role,
+                        @RequestParam(required = false) Boolean locked,
+                        @RequestParam(required = false) Boolean verified,
+                        Pageable pageable) {
 
-    @GetMapping("/users/{id}")
-    @Operation(summary = "Get user", description = "Get detailed information about a single user")
-    public ResponseEntity<ApiResponse<AdminUserResponse>> getUser(@PathVariable String id) {
-        AdminUserResponse user = adminService.getUserById(id);
-        return ResponseEntity.ok(ApiResponse.<AdminUserResponse>builder()
-                .success(true)
-                .data(user)
-                .build());
-    }
+                AdminUserSearchRequest request = AdminUserSearchRequest.builder()
+                                .search(search)
+                                .role(role != null ? com.giftedlabs.echoinhealthbackend.entity.Role.valueOf(role)
+                                                : null)
+                                .locked(locked)
+                                .verified(verified)
+                                .build();
 
-    @PutMapping("/users/{id}/role")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
-    @Operation(summary = "Update role", description = "Change a user's role (SUPER_ADMIN only)")
-    public ResponseEntity<ApiResponse<AdminUserResponse>> updateUserRole(
-            @PathVariable String id,
-            @Valid @RequestBody UpdateUserRoleRequest request,
-            Authentication authentication) {
+                Page<AdminUserResponse> users = adminService.getAllUsers(request, pageable);
+                return ResponseEntity.ok(ApiResponse.<Page<AdminUserResponse>>builder()
+                                .success(true)
+                                .data(users)
+                                .build());
+        }
 
-        User adminUser = getAdminUser(authentication);
-        AdminUserResponse user = adminService.updateUserRole(id, request.getRole(), adminUser);
-        return ResponseEntity.ok(ApiResponse.<AdminUserResponse>builder()
-                .success(true)
-                .message("User role updated successfully")
-                .data(user)
-                .build());
-    }
+        @GetMapping("/users/{id}")
+        @Operation(summary = "Get user", description = "Get detailed information about a single user")
+        public ResponseEntity<ApiResponse<AdminUserResponse>> getUser(@PathVariable String id) {
+                AdminUserResponse user = adminService.getUserById(id);
+                return ResponseEntity.ok(ApiResponse.<AdminUserResponse>builder()
+                                .success(true)
+                                .data(user)
+                                .build());
+        }
 
-    @PutMapping("/users/{id}/lock")
-    @Operation(summary = "Lock user", description = "Lock a user's account")
-    public ResponseEntity<ApiResponse<AdminUserResponse>> lockUser(
-            @PathVariable String id,
-            Authentication authentication) {
+        @PutMapping("/users/{id}/role")
+        @PreAuthorize("hasRole('SUPER_ADMIN')")
+        @Operation(summary = "Update role", description = "Change a user's role (SUPER_ADMIN only)")
+        public ResponseEntity<ApiResponse<AdminUserResponse>> updateUserRole(
+                        @PathVariable String id,
+                        @Valid @RequestBody UpdateUserRoleRequest request,
+                        Authentication authentication) {
 
-        User adminUser = getAdminUser(authentication);
-        AdminUserResponse user = adminService.lockUser(id, adminUser);
-        return ResponseEntity.ok(ApiResponse.<AdminUserResponse>builder()
-                .success(true)
-                .message("User account locked successfully")
-                .data(user)
-                .build());
-    }
+                User adminUser = getAdminUser(authentication);
+                AdminUserResponse user = adminService.updateUserRole(id, request.getRole(), adminUser);
+                return ResponseEntity.ok(ApiResponse.<AdminUserResponse>builder()
+                                .success(true)
+                                .message("User role updated successfully")
+                                .data(user)
+                                .build());
+        }
 
-    @PutMapping("/users/{id}/unlock")
-    @Operation(summary = "Unlock user", description = "Unlock a user's account")
-    public ResponseEntity<ApiResponse<AdminUserResponse>> unlockUser(
-            @PathVariable String id,
-            Authentication authentication) {
+        @PutMapping("/users/{id}/lock")
+        @Operation(summary = "Lock user", description = "Lock a user's account")
+        public ResponseEntity<ApiResponse<AdminUserResponse>> lockUser(
+                        @PathVariable String id,
+                        Authentication authentication) {
 
-        User adminUser = getAdminUser(authentication);
-        AdminUserResponse user = adminService.unlockUser(id, adminUser);
-        return ResponseEntity.ok(ApiResponse.<AdminUserResponse>builder()
-                .success(true)
-                .message("User account unlocked successfully")
-                .data(user)
-                .build());
-    }
+                User adminUser = getAdminUser(authentication);
+                AdminUserResponse user = adminService.lockUser(id, adminUser);
+                return ResponseEntity.ok(ApiResponse.<AdminUserResponse>builder()
+                                .success(true)
+                                .message("User account locked successfully")
+                                .data(user)
+                                .build());
+        }
 
-    @DeleteMapping("/users/{id}")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
-    @Operation(summary = "Delete user", description = "Permanently delete a user (SUPER_ADMIN only)")
-    public ResponseEntity<ApiResponse<Void>> deleteUser(
-            @PathVariable String id,
-            Authentication authentication) {
+        @PutMapping("/users/{id}/unlock")
+        @Operation(summary = "Unlock user", description = "Unlock a user's account")
+        public ResponseEntity<ApiResponse<AdminUserResponse>> unlockUser(
+                        @PathVariable String id,
+                        Authentication authentication) {
 
-        User adminUser = getAdminUser(authentication);
-        adminService.deleteUser(id, adminUser);
-        return ResponseEntity.ok(ApiResponse.<Void>builder()
-                .success(true)
-                .message("User deleted successfully")
-                .build());
-    }
+                User adminUser = getAdminUser(authentication);
+                AdminUserResponse user = adminService.unlockUser(id, adminUser);
+                return ResponseEntity.ok(ApiResponse.<AdminUserResponse>builder()
+                                .success(true)
+                                .message("User account unlocked successfully")
+                                .data(user)
+                                .build());
+        }
 
-    // ========== Audit Logs ==========
+        @DeleteMapping("/users/{id}")
+        @PreAuthorize("hasRole('SUPER_ADMIN')")
+        @Operation(summary = "Delete user", description = "Permanently delete a user (SUPER_ADMIN only)")
+        public ResponseEntity<ApiResponse<Void>> deleteUser(
+                        @PathVariable String id,
+                        Authentication authentication) {
 
-    @GetMapping("/audit-logs")
-    @Operation(summary = "View audit logs", description = "Get paginated audit logs with optional filters")
-    public ResponseEntity<ApiResponse<Page<AuditLogResponse>>> getAuditLogs(
-            @RequestParam(required = false) String action,
-            @RequestParam(required = false) String userEmail,
-            @RequestParam(required = false) Boolean success,
-            @RequestParam(required = false) java.time.LocalDateTime startDate,
-            @RequestParam(required = false) java.time.LocalDateTime endDate,
-            Pageable pageable) {
+                User adminUser = getAdminUser(authentication);
+                adminService.deleteUser(id, adminUser);
+                return ResponseEntity.ok(ApiResponse.<Void>builder()
+                                .success(true)
+                                .message("User deleted successfully")
+                                .build());
+        }
 
-        AuditLogSearchRequest request = AuditLogSearchRequest.builder()
-                .action(action)
-                .userEmail(userEmail)
-                .success(success)
-                .startDate(startDate)
-                .endDate(endDate)
-                .build();
+        // ========== Audit Logs ==========
 
-        Page<AuditLogResponse> logs = adminService.getAuditLogs(request, pageable);
-        return ResponseEntity.ok(ApiResponse.<Page<AuditLogResponse>>builder()
-                .success(true)
-                .data(logs)
-                .build());
-    }
+        @GetMapping("/audit-logs")
+        @Operation(summary = "View audit logs", description = "Get paginated audit logs with optional filters")
+        public ResponseEntity<ApiResponse<Page<AuditLogResponse>>> getAuditLogs(
+                        @RequestParam(required = false) String action,
+                        @RequestParam(required = false) String userEmail,
+                        @RequestParam(required = false) Boolean success,
+                        @RequestParam(required = false) java.time.LocalDateTime startDate,
+                        @RequestParam(required = false) java.time.LocalDateTime endDate,
+                        Pageable pageable) {
 
-    @GetMapping("/audit-logs/user/{userId}")
-    @Operation(summary = "User audit logs", description = "Get audit logs for a specific user")
-    public ResponseEntity<ApiResponse<Page<AuditLogResponse>>> getAuditLogsForUser(
-            @PathVariable String userId,
-            Pageable pageable) {
+                AuditLogSearchRequest request = AuditLogSearchRequest.builder()
+                                .action(action)
+                                .userEmail(userEmail)
+                                .success(success)
+                                .startDate(startDate)
+                                .endDate(endDate)
+                                .build();
 
-        Page<AuditLogResponse> logs = adminService.getAuditLogsForUser(userId, pageable);
-        return ResponseEntity.ok(ApiResponse.<Page<AuditLogResponse>>builder()
-                .success(true)
-                .data(logs)
-                .build());
-    }
+                Page<AuditLogResponse> logs = adminService.getAuditLogs(request, pageable);
+                return ResponseEntity.ok(ApiResponse.<Page<AuditLogResponse>>builder()
+                                .success(true)
+                                .data(logs)
+                                .build());
+        }
 
-    @GetMapping("/audit-logs/actions")
-    @Operation(summary = "Action types", description = "Get list of available action types for filtering")
-    public ResponseEntity<ApiResponse<List<String>>> getActionTypes() {
-        List<String> actions = adminService.getActionTypes();
-        return ResponseEntity.ok(ApiResponse.<List<String>>builder()
-                .success(true)
-                .data(actions)
-                .build());
-    }
+        @GetMapping("/audit-logs/user/{userId}")
+        @Operation(summary = "User audit logs", description = "Get audit logs for a specific user")
+        public ResponseEntity<ApiResponse<Page<AuditLogResponse>>> getAuditLogsForUser(
+                        @PathVariable String userId,
+                        Pageable pageable) {
 
-    // ========== Helper Methods ==========
+                Page<AuditLogResponse> logs = adminService.getAuditLogsForUser(userId, pageable);
+                return ResponseEntity.ok(ApiResponse.<Page<AuditLogResponse>>builder()
+                                .success(true)
+                                .data(logs)
+                                .build());
+        }
 
-    private User getAdminUser(Authentication authentication) {
-        UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-        String email = userDetails.getUsername();
-        return userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResourceNotFoundException("Admin user not found"));
-    }
+        @GetMapping("/audit-logs/actions")
+        @Operation(summary = "Action types", description = "Get list of available action types for filtering")
+        public ResponseEntity<ApiResponse<List<String>>> getActionTypes() {
+                List<String> actions = adminService.getActionTypes();
+                return ResponseEntity.ok(ApiResponse.<List<String>>builder()
+                                .success(true)
+                                .data(actions)
+                                .build());
+        }
+
+        // ========== Helper Methods ==========
+
+        private User getAdminUser(Authentication authentication) {
+                UserDetails userDetails = (UserDetails) authentication.getPrincipal();
+                String email = userDetails.getUsername();
+                return userRepository.findByEmail(email)
+                                .orElseThrow(() -> new ResourceNotFoundException("Admin user not found"));
+        }
 }
