@@ -106,6 +106,17 @@ public class Report {
     @Builder.Default
     private Boolean isFavorite = false;
 
+    // Analytics & Status
+    @Column(name = "is_ai_generated")
+    @Builder.Default
+    private Boolean isAiGenerated = false;
+
+    @Column(name = "status", length = 20)
+    private String status; // e.g., DRAFT, FINAL
+
+    @Column(name = "processing_time_seconds")
+    private Integer processingTimeSeconds;
+
     // Timestamps
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

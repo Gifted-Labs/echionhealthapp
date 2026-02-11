@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -125,4 +126,17 @@ public interface ReportRepository extends JpaRepository<Report, String> {
      * Count reports for a user
      */
     long countByUserId(String userId);
+
+    // ================= Analytics Queries =================
+
+    long countByIsAiGeneratedTrue();
+
+    long countByIsAiGeneratedFalse();
+
+    @Query("SELECT AVG(r.processingTimeSeconds) FROM Report r WHERE r.isAiGenerated = true")
+    Double getAverageAiProcessingTime();
+
+    long countByCreatedAtBetween(LocalDateTime start, LocalDateTime end);
+
+    long countByIsAiGeneratedTrueAndCreatedAtBetween(LocalDateTime start, LocalDateTime end);
 }
