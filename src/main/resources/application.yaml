@@ -41,7 +41,7 @@ jwt:
   secret: ${JWT_SECRET:zA9FQW6nT7Jm8L3CkD5bX2p4R0YHUsN1eMZBqfGvVhEoK_iwSaPtdOcrxIyljA7}
   expiration: ${JWT_EXPIRATION:3600000}  # 1 hour in milliseconds
   refresh-expiration: ${JWT_REFRESH_EXPIRATION:86400000}  # 24 hours in milliseconds
-  issuer: ${JWT_ISSUER:echoin-health}
+  issuer: ${JWT_ISSUER:echion-health}
 
 # Email Configuration
 email:
@@ -57,6 +57,9 @@ app:
     expiration-hours: ${TOKEN_VERIFICATION_HOURS:24}
   password-reset-token:
     expiration-hours: ${TOKEN_PASSWORD_RESET_HOURS:1}
+  admin:
+    email: ${ADMIN_EMAIL:superadmin@echoinhealth.com}
+    password: ${ADMIN_PASSWORD:SuperAdmin123!}
 
 # Logging
 logging:
@@ -76,23 +79,28 @@ springdoc:
     enabled: true
 
 # File Storage Configuration
+# File Storage Configuration
 storage:
-  type: ${STORAGE_TYPE:railway}  # 'local' for development, 'railway' for production (default to railway)
+  type: ${STORAGE_TYPE:r2}  # 'local' for development, 'r2' for production (default to r2)
   max-file-size: ${MAX_FILE_SIZE:52428800}  # 50MB in bytes
   allowed-types: application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document
   
   local:
     base-path: ${LOCAL_STORAGE_PATH:./vault-storage}
     
-  railway:
-    endpoint: ${RAILWAY_BUCKET_URL:}
-    bucket: ${RAILWAY_BUCKET_NAME:}
-    access-key: ${RAILWAY_ACCESS_KEY_ID:}
-    secret-key: ${RAILWAY_SECRET_ACCESS_KEY:}
-    region: ${RAILWAY_REGION:us-east-1}
+  r2:
+    endpoint: ${R2_BUCKET_URL:}
+    bucket: ${R2_BUCKET_NAME:}
+    access-key: ${R2_ACCESS_KEY_ID:}
+    secret-key: ${R2_SECRET_ACCESS_KEY:}
+    region: ${R2_REGION:auto}
 
 # Multipart File Upload Configuration
 spring.servlet.multipart:
   enabled: true
   max-file-size: 50MB
   max-request-size: 50MB
+
+# Encryption Configuration (AES-256)
+encryption:
+  key: ${ENCRYPTION_KEY:EchionHealthAES256SecretKey12345}

@@ -5,5 +5,5 @@ package com.giftedlabs.echoinhealthbackend.entity;
  */
 public enum StorageType {
     LOCAL, // Local filesystem storage (development)
-    RAILWAY // Railway object storage (production)
+    R2 // Cloudflare R2 object storage (production)
 }

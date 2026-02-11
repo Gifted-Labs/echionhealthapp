@@ -44,7 +44,10 @@ public class ReportPdfService {
         return generatePdf(report);
     }
 
-    private byte[] generatePdf(Report report) throws IOException {
+    /**
+     * Generate PDF for a Report entity
+     */
+    public byte[] generatePdf(Report report) throws IOException {
         try (PDDocument document = new PDDocument();
                 ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
 

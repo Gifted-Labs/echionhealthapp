@@ -2,6 +2,7 @@ package com.giftedlabs.echoinhealthbackend.service;
 
 import com.giftedlabs.echoinhealthbackend.dto.collaboration.*;
 import com.giftedlabs.echoinhealthbackend.entity.*;
+import com.giftedlabs.echoinhealthbackend.exception.AccessDeniedException;
 import com.giftedlabs.echoinhealthbackend.exception.ResourceNotFoundException;
 import com.giftedlabs.echoinhealthbackend.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -11,6 +12,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -18,7 +20,11 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Service for scan collaboration - sharing, commenting, and resolution
+ * Service for SonoShare collaboration - sharing scans/images, commenting, and
+ * resolution.
+ * Supports two sharing levels:
+ * - SPECIFIC_COLLEAGUES: Share with selected users only
+ * - EVERYONE: Share with all users on the system
  */
 @Service
 @RequiredArgsConstructor
@@ -30,23 +36,52 @@ public class CollaborationService {
     private final ScanCommentRepository commentRepository;
     private final ReportRepository reportRepository;
     private final UserRepository userRepository;
+    private final FileStorageService fileStorageService;
     private final NotificationService notificationService;
     private final AuditService auditService;
 
-    // ========== Share Scan ==========
+    // ========== Share Scan/Image ==========
 
     /**
-     * Share a scan for collaboration
+     * Share a scan or image for collaboration.
+     * Can share a report, an uploaded image, or both.
+     *
+     * @param request   Share request with reportId (optional)
+     * @param imageFile Optional image file to upload
+     * @param owner     User sharing the scan/image
+     * @return Shared scan response
      */
     @Transactional
-    public SharedScanResponse shareScan(ShareScanRequest request, User owner) {
-        // Get the report
-        Report report = reportRepository.findByIdAndUserId(request.getReportId(), owner.getId())
-                .orElseThrow(() -> new ResourceNotFoundException("Report not found or not owned by you"));
+    public SharedScanResponse shareScan(ShareScanRequest request, MultipartFile imageFile, User owner) {
+        Report report = null;
+        String imageUrl = null;
+        String imageName = null;
+        StorageType imageStorageType = null;
+
+        // Get report if provided
+        if (request.getReportId() != null && !request.getReportId().isEmpty()) {
+            report = reportRepository.findByIdAndUserId(request.getReportId(), owner.getId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Report not found or not owned by you"));
+        }
+
+        // Handle image upload if provided
+        if (imageFile != null && !imageFile.isEmpty()) {
+            imageUrl = fileStorageService.storeFile(imageFile, owner.getId());
+            imageName = imageFile.getOriginalFilename();
+            imageStorageType = fileStorageService.getCurrentStorageType();
+        }
+
+        // Validate that at least one content type is provided
+        if (report == null && imageUrl == null) {
+            throw new IllegalArgumentException("Either a report ID or an image file is required for sharing");
+        }
 
         // Create shared scan
         SharedScan sharedScan = SharedScan.builder()
                 .report(report)
+                .imageUrl(imageUrl)
+                .imageName(imageName)
+                .imageStorageType(imageStorageType)
                 .owner(owner)
                 .sharingLevel(request.getSharingLevel())
                 .title(request.getTitle())
@@ -75,23 +110,10 @@ public class CollaborationService {
                 accessRepository.save(access);
                 recipients.add(colleague);
             }
-        } else if (request.getSharingLevel() == SharingLevel.DEPARTMENT_WIDE) {
-            // Find users in same department
-            recipients = userRepository.findAll().stream()
-                    .filter(u -> owner.getDepartment() != null &&
-                            owner.getDepartment().equals(u.getDepartment()) &&
-                            !u.getId().equals(owner.getId()))
-                    .collect(Collectors.toList());
-        } else if (request.getSharingLevel() == SharingLevel.FACILITY_WIDE) {
-            // Find users in same hospital
-            recipients = userRepository.findAll().stream()
-                    .filter(u -> owner.getHospitalName() != null &&
-                            owner.getHospitalName().equals(u.getHospitalName()) &&
-                            !u.getId().equals(owner.getId()))
-                    .collect(Collectors.toList());
         }
+        // For EVERYONE sharing, no access records needed - all users can access
 
-        // Send notifications to recipients
+        // Send notifications to recipients (only for SPECIFIC_COLLEAGUES)
         for (User recipient : recipients) {
             notificationService.createNotification(
                     recipient,
@@ -106,13 +128,22 @@ public class CollaborationService {
         }
 
         // Audit log
+        String shareType = report != null ? "report " + report.getId() : "image " + imageName;
         auditService.logAction(owner, "scan_shared",
-                String.format("Shared scan %s with level %s", report.getId(), request.getSharingLevel()));
+                String.format("Shared %s with level %s", shareType, request.getSharingLevel()));
 
-        log.info("User {} shared scan {} with {} recipients",
-                owner.getEmail(), sharedScan.getId(), recipients.size());
+        log.info("User {} shared {} with level {}, {} specific recipients",
+                owner.getEmail(), shareType, request.getSharingLevel(), recipients.size());
 
         return mapToResponse(sharedScan);
+    }
+
+    /**
+     * Share a scan (backward compatible - no image)
+     */
+    @Transactional
+    public SharedScanResponse shareScan(ShareScanRequest request, User owner) {
+        return shareScan(request, null, owner);
     }
 
     // ========== Get Shared Scans ==========
@@ -128,19 +159,10 @@ public class CollaborationService {
         Page<SharedScan> directlyShared = sharedScanRepository.findSharedWithUser(user.getId(), pageable);
         allSharedScans.addAll(directlyShared.map(this::mapToResponse).getContent());
 
-        // Get department-wide shares
-        if (user.getDepartment() != null) {
-            Page<SharedScan> deptShared = sharedScanRepository.findByDepartment(
-                    SharingLevel.DEPARTMENT_WIDE, user.getDepartment(), user.getId(), pageable);
-            allSharedScans.addAll(deptShared.map(this::mapToResponse).getContent());
-        }
-
-        // Get facility-wide shares
-        if (user.getHospitalName() != null) {
-            Page<SharedScan> facilityShared = sharedScanRepository.findByFacility(
-                    SharingLevel.FACILITY_WIDE, user.getHospitalName(), user.getId(), pageable);
-            allSharedScans.addAll(facilityShared.map(this::mapToResponse).getContent());
-        }
+        // Get EVERYONE shares (excluding own shares)
+        Page<SharedScan> everyoneShared = sharedScanRepository.findByEveryoneSharing(
+                SharingLevel.EVERYONE, user.getId(), pageable);
+        allSharedScans.addAll(everyoneShared.map(this::mapToResponse).getContent());
 
         // Remove duplicates and sort by created date
         List<SharedScanResponse> uniqueScans = allSharedScans.stream()
@@ -170,10 +192,10 @@ public class CollaborationService {
 
         // Check access
         if (!canAccessSharedScan(sharedScan, user)) {
-            throw new SecurityException("Not authorized to access this shared scan");
+            throw new AccessDeniedException("Not authorized to access this shared scan");
         }
 
-        // Mark as viewed if first time
+        // Mark as viewed if first time (only for SPECIFIC_COLLEAGUES)
         if (sharedScan.getSharingLevel() == SharingLevel.SPECIFIC_COLLEAGUES) {
             accessRepository.findBySharedScanIdAndUserId(sharedScanId, user.getId())
                     .ifPresent(access -> {
@@ -205,12 +227,12 @@ public class CollaborationService {
 
         // Check access
         if (!canAccessSharedScan(sharedScan, author)) {
-            throw new SecurityException("Not authorized to comment on this shared scan");
+            throw new AccessDeniedException("Not authorized to comment on this shared scan");
         }
 
         // Handle parent comment for replies
         ScanComment parent = null;
-        if (request.getParentId() != null) {
+        if (request.getParentId() != null && !request.getParentId().isEmpty()) {
             parent = commentRepository.findById(request.getParentId())
                     .orElseThrow(() -> new ResourceNotFoundException("Parent comment not found"));
         }
@@ -275,7 +297,7 @@ public class CollaborationService {
                 .orElseThrow(() -> new ResourceNotFoundException("Shared scan not found"));
 
         if (!canAccessSharedScan(sharedScan, user)) {
-            throw new SecurityException("Not authorized to view comments");
+            throw new AccessDeniedException("Not authorized to view comments");
         }
 
         return commentRepository.findTopLevelComments(sharedScanId, pageable)
@@ -293,7 +315,7 @@ public class CollaborationService {
                 .orElseThrow(() -> new ResourceNotFoundException("Shared scan not found"));
 
         if (!sharedScan.getOwner().getId().equals(owner.getId())) {
-            throw new SecurityException("Only the owner can resolve a shared scan");
+            throw new AccessDeniedException("Only the owner can resolve a shared scan");
         }
 
         sharedScan.setStatus(SharedScanStatus.RESOLVED);
@@ -301,17 +323,19 @@ public class CollaborationService {
         sharedScan.setResolutionNotes(request.getResolutionNotes());
         sharedScan = sharedScanRepository.save(sharedScan);
 
-        // Notify collaborators
-        List<User> collaborators = getCollaborators(sharedScan);
-        for (User collaborator : collaborators) {
-            notificationService.createNotification(
-                    collaborator,
-                    owner,
-                    NotificationType.SCAN_RESOLVED,
-                    sharedScan,
-                    null,
-                    "Shared scan resolved",
-                    String.format("%s marked the shared scan as resolved", owner.getFullName()));
+        // Notify collaborators (only for SPECIFIC_COLLEAGUES)
+        if (sharedScan.getSharingLevel() == SharingLevel.SPECIFIC_COLLEAGUES) {
+            List<User> collaborators = getCollaborators(sharedScan);
+            for (User collaborator : collaborators) {
+                notificationService.createNotification(
+                        collaborator,
+                        owner,
+                        NotificationType.SCAN_RESOLVED,
+                        sharedScan,
+                        null,
+                        "Shared scan resolved",
+                        String.format("%s marked the shared scan as resolved", owner.getFullName()));
+            }
         }
 
         auditService.logAction(owner, "scan_resolved",
@@ -333,12 +357,9 @@ public class CollaborationService {
         switch (sharedScan.getSharingLevel()) {
             case SPECIFIC_COLLEAGUES:
                 return accessRepository.existsBySharedScanIdAndUserId(sharedScan.getId(), user.getId());
-            case DEPARTMENT_WIDE:
-                return user.getDepartment() != null &&
-                        user.getDepartment().equals(sharedScan.getOwner().getDepartment());
-            case FACILITY_WIDE:
-                return user.getHospitalName() != null &&
-                        user.getHospitalName().equals(sharedScan.getOwner().getHospitalName());
+            case EVERYONE:
+                // All authenticated users can access EVERYONE shares
+                return true;
             default:
                 return false;
         }
@@ -355,7 +376,7 @@ public class CollaborationService {
                     }
                 });
 
-        // Get users with explicit access
+        // Get users with explicit access (for SPECIFIC_COLLEAGUES)
         if (sharedScan.getSharingLevel() == SharingLevel.SPECIFIC_COLLEAGUES) {
             accessRepository.findBySharedScanId(sharedScan.getId())
                     .forEach(a -> collaborators.add(a.getUser()));
@@ -365,16 +386,8 @@ public class CollaborationService {
     }
 
     private SharedScanResponse mapToResponse(SharedScan sharedScan) {
-        return SharedScanResponse.builder()
+        SharedScanResponse.SharedScanResponseBuilder builder = SharedScanResponse.builder()
                 .id(sharedScan.getId())
-                .reportId(sharedScan.getReport().getId())
-                .reportPatientName(sharedScan.getReport().getPatientName())
-                .reportScanType(sharedScan.getReport().getScanType() != null
-                        ? sharedScan.getReport().getScanType().name()
-                        : null)
-                .reportScanDate(sharedScan.getReport().getScanDate() != null
-                        ? sharedScan.getReport().getScanDate().atStartOfDay()
-                        : null)
                 .ownerId(sharedScan.getOwner().getId())
                 .ownerName(sharedScan.getOwner().getFullName())
                 .ownerEmail(sharedScan.getOwner().getEmail())
@@ -389,7 +402,26 @@ public class CollaborationService {
                 .createdAt(sharedScan.getCreatedAt())
                 .resolvedAt(sharedScan.getResolvedAt())
                 .resolutionNotes(sharedScan.getResolutionNotes())
-                .build();
+                .hasReport(sharedScan.hasReport())
+                .hasImage(sharedScan.hasImage());
+
+        // Report fields (if present)
+        if (sharedScan.hasReport()) {
+            Report report = sharedScan.getReport();
+            builder.reportId(report.getId())
+                    .reportPatientName(report.getPatientName())
+                    .reportScanType(report.getScanType() != null ? report.getScanType().name() : null)
+                    .reportScanDate(report.getScanDate() != null ? report.getScanDate().atStartOfDay() : null);
+        }
+
+        // Image fields (if present)
+        if (sharedScan.hasImage()) {
+            builder.imageUrl(sharedScan.getImageUrl())
+                    .imageName(sharedScan.getImageName())
+                    .imageStorageType(sharedScan.getImageStorageType());
+        }
+
+        return builder.build();
     }
 
     private ScanCommentResponse mapToCommentResponse(ScanComment comment) {

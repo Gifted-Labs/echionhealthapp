@@ -5,12 +5,16 @@ import com.giftedlabs.echoinhealthbackend.entity.*;
 import com.giftedlabs.echoinhealthbackend.repository.CollaborationNotificationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import static com.giftedlabs.echoinhealthbackend.util.CacheNames.NOTIFICATION_COUNTS;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -97,9 +101,20 @@ public class NotificationService {
     // ========== Notification CRUD ==========
 
     /**
-     * Create and send a notification
+     * Create and send a notification.
+     * Evicts the notification count cache for the recipient.
+     *
+     * @param recipient  User receiving the notification
+     * @param sender     User sending the notification
+     * @param type       Notification type
+     * @param sharedScan Related shared scan (optional)
+     * @param comment    Related comment (optional)
+     * @param title      Notification title
+     * @param message    Notification message
+     * @return Created notification response
      */
     @Transactional
+    @CacheEvict(value = NOTIFICATION_COUNTS, key = "#recipient.id")
     public NotificationResponse createNotification(
             User recipient,
             User sender,
@@ -152,17 +167,29 @@ public class NotificationService {
     }
 
     /**
-     * Get unread notification count
+     * Get unread notification count.
+     * Result is cached with 1-minute TTL.
+     *
+     * @param userId User ID
+     * @return Count of unread notifications
      */
     @Transactional(readOnly = true)
+    @Cacheable(value = NOTIFICATION_COUNTS, key = "#userId")
     public long getUnreadCount(String userId) {
+        log.debug("Cache miss: fetching unread count for user: {}", userId);
         return notificationRepository.countByRecipientIdAndIsReadFalse(userId);
     }
 
     /**
-     * Mark a notification as read
+     * Mark a notification as read.
+     * Evicts the notification count cache for this user.
+     *
+     * @param notificationId Notification ID
+     * @param userId         User ID
+     * @return Updated notification response
      */
     @Transactional
+    @CacheEvict(value = NOTIFICATION_COUNTS, key = "#userId")
     public NotificationResponse markAsRead(String notificationId, String userId) {
         CollaborationNotification notification = notificationRepository.findById(notificationId)
                 .orElseThrow(() -> new RuntimeException("Notification not found"));
@@ -179,9 +206,14 @@ public class NotificationService {
     }
 
     /**
-     * Mark all notifications as read for a user
+     * Mark all notifications as read for a user.
+     * Evicts the notification count cache for this user.
+     *
+     * @param userId User ID
+     * @return Number of notifications marked as read
      */
     @Transactional
+    @CacheEvict(value = NOTIFICATION_COUNTS, key = "#userId")
     public int markAllAsRead(String userId) {
         return notificationRepository.markAllAsRead(userId, LocalDateTime.now());
     }

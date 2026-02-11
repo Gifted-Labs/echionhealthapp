@@ -12,12 +12,12 @@ import org.springframework.context.annotation.Configuration;
 @ConfigurationProperties(prefix = "storage")
 public class StorageConfig {
 
-    private String type; // local or railway
+    private String type; // local or r2
     private long maxFileSize;
     private String allowedTypes;
 
     private Local local = new Local();
-    private Railway railway = new Railway();
+    private R2 r2 = new R2();
 
     @Data
     public static class Local {
@@ -25,7 +25,7 @@ public class StorageConfig {
     }
 
     @Data
-    public static class Railway {
+    public static class R2 {
         private String endpoint;
         private String bucket;
         private String accessKey;

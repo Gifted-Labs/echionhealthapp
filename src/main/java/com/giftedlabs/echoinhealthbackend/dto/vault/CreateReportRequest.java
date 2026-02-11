@@ -54,4 +54,7 @@ public class CreateReportRequest {
 
     // Metadata
     private String[] tags;
+
+    // Template ID (for usage analytics tracking)
+    private String templateId;
 }

@@ -27,7 +27,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.UUID;
 
 /**
- * Service for handling file storage operations (Local and Railway S3)
+ * Service for handling file storage operations (Local and Cloudflare R2 S3)
  */
 @Service
 @RequiredArgsConstructor
@@ -40,7 +40,7 @@ public class FileStorageService {
 
     @PostConstruct
     public void init() {
-        if ("railway".equalsIgnoreCase(storageConfig.getType())) {
+        if ("r2".equalsIgnoreCase(storageConfig.getType())) {
             initializeS3Client();
         } else {
             initializeLocalStorage();
@@ -59,8 +59,8 @@ public class FileStorageService {
 
     private void initializeS3Client() {
         try {
-            // Railway S3 compatible storage requires endpoint override
-            String endpoint = storageConfig.getRailway().getEndpoint();
+            // Cloudflare R2 S3 compatible storage requires endpoint override
+            String endpoint = storageConfig.getR2().getEndpoint();
             // Ensure endpoint has protocol
             if (!endpoint.startsWith("http")) {
                 endpoint = "https://" + endpoint;
@@ -68,13 +68,13 @@ public class FileStorageService {
 
             this.s3Client = S3Client.builder()
                     .endpointOverride(URI.create(endpoint))
-                    .region(Region.of(storageConfig.getRailway().getRegion()))
+                    .region(Region.of(storageConfig.getR2().getRegion()))
                     .credentialsProvider(StaticCredentialsProvider.create(
                             AwsBasicCredentials.create(
-                                    storageConfig.getRailway().getAccessKey(),
-                                    storageConfig.getRailway().getSecretKey())))
+                                    storageConfig.getR2().getAccessKey(),
+                                    storageConfig.getR2().getSecretKey())))
                     .build();
-            log.info("Initialized Railway/S3 storage client");
+            log.info("Initialized R2/S3 storage client");
         } catch (Exception e) {
             log.error("Failed to initialize S3 client, falling back to local storage", e);
             initializeLocalStorage();
@@ -96,7 +96,7 @@ public class FileStorageService {
         String filename = userId + "/" + UUID.randomUUID() + "_" + originalFilename;
 
         try {
-            if (isRailwayStorage()) {
+            if (isR2Storage()) {
                 return uploadToS3(filename, file);
             } else {
                 return saveLocally(filename, file);
@@ -117,7 +117,7 @@ public class FileStorageService {
 
     private String uploadToS3(String key, MultipartFile file) throws IOException {
         PutObjectRequest putOb = PutObjectRequest.builder()
-                .bucket(storageConfig.getRailway().getBucket())
+                .bucket(storageConfig.getR2().getBucket())
                 .key(key)
                 .contentType(file.getContentType())
                 .build();
@@ -127,11 +127,11 @@ public class FileStorageService {
     }
 
     public StorageType getCurrentStorageType() {
-        return isRailwayStorage() ? StorageType.RAILWAY : StorageType.LOCAL;
+        return isR2Storage() ? StorageType.R2 : StorageType.LOCAL;
     }
 
-    private boolean isRailwayStorage() {
-        return "railway".equalsIgnoreCase(storageConfig.getType()) && s3Client != null;
+    private boolean isR2Storage() {
+        return "r2".equalsIgnoreCase(storageConfig.getType()) && s3Client != null;
     }
 
     /**
@@ -141,7 +141,7 @@ public class FileStorageService {
      * stream.
      */
     public String getFileUrl(String filePath) {
-        if (isRailwayStorage()) {
+        if (isR2Storage()) {
             // Generate presigned URL (or public URL if public read)
             // For simplicity in this demo, usually we'd generate a presigned URL.
             // But software.amazon.awssdk.s3.S3Utilities is simpler if bucket is public,
@@ -162,9 +162,9 @@ public class FileStorageService {
      * Get input stream for file content
      */
     public InputStream getFileStream(String filePath, StorageType storageType) throws IOException {
-        if (storageType == StorageType.RAILWAY && s3Client != null) {
+        if (storageType == StorageType.R2 && s3Client != null) {
             return s3Client.getObject(builder -> builder
-                    .bucket(storageConfig.getRailway().getBucket())
+                    .bucket(storageConfig.getR2().getBucket())
                     .key(filePath));
         } else {
             Path path = this.localStoragePath.resolve(filePath);
@@ -172,6 +172,25 @@ public class FileStorageService {
                 throw new IOException("File not found: " + filePath);
             }
             return Files.newInputStream(path);
+        }
+    }
+
+    /**
+     * Download file content as byte array
+     */
+    public byte[] downloadFile(String filePath) throws IOException {
+        if (isR2Storage()) {
+            try (InputStream stream = s3Client.getObject(builder -> builder
+                    .bucket(storageConfig.getR2().getBucket())
+                    .key(filePath))) {
+                return stream.readAllBytes();
+            }
+        } else {
+            Path path = this.localStoragePath.resolve(filePath);
+            if (!Files.exists(path)) {
+                throw new IOException("File not found: " + filePath);
+            }
+            return Files.readAllBytes(path);
         }
     }
 }

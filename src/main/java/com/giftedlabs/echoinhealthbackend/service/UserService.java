@@ -8,13 +8,18 @@ import com.giftedlabs.echoinhealthbackend.exception.UserNotFoundException;
 import com.giftedlabs.echoinhealthbackend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 
+import static com.giftedlabs.echoinhealthbackend.util.CacheNames.USERS;
+
 /**
- * Service for user profile management
+ * Service for user profile management.
+ * Implements caching for frequently accessed user profiles.
  */
 @Service
 @RequiredArgsConstructor
@@ -24,20 +29,37 @@ public class UserService {
     private final UserRepository userRepository;
     private final AuditService auditService;
 
+    // ========== Read Operations (Cached) ==========
+
     /**
-     * Get user profile by email
+     * Get user profile by email.
+     * Result is cached to reduce database lookups.
+     *
+     * @param email User's email address
+     * @return User profile response
+     * @throws UserNotFoundException if user not found
      */
+    @Cacheable(value = USERS, key = "#email")
     public UserProfileResponse getUserProfile(String email) {
+        log.debug("Cache miss: fetching user profile for email: {}", email);
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new UserNotFoundException("User not found"));
 
         return mapToProfileResponse(user);
     }
 
+    // ========== Write Operations (Cache Evicting) ==========
+
     /**
-     * Complete user profile with professional details
+     * Complete user profile with professional details.
+     * Evicts user from cache after update.
+     *
+     * @param email   User's email address
+     * @param request Profile completion details
+     * @return Updated user profile response
      */
     @Transactional
+    @CacheEvict(value = USERS, key = "#email")
     public UserProfileResponse completeProfile(String email, CompleteProfileRequest request) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new UserNotFoundException("User not found"));
@@ -50,7 +72,6 @@ public class UserService {
 
         User savedUser = userRepository.save(user);
 
-        // Audit log
         auditService.logAction(
                 savedUser,
                 "profile_completed",
@@ -63,9 +84,15 @@ public class UserService {
     }
 
     /**
-     * Update user profile (partial update)
+     * Update user profile (partial update).
+     * Evicts user from cache after update.
+     *
+     * @param email   User's email address
+     * @param request Profile update details
+     * @return Updated user profile response
      */
     @Transactional
+    @CacheEvict(value = USERS, key = "#email")
     public UserProfileResponse updateProfile(String email, UpdateProfileRequest request) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new UserNotFoundException("User not found"));
@@ -100,7 +127,6 @@ public class UserService {
         user.setProfileUpdatedAt(LocalDateTime.now());
         User savedUser = userRepository.save(user);
 
-        // Audit log
         auditService.logAction(
                 savedUser,
                 "profile_updated",
@@ -110,6 +136,8 @@ public class UserService {
 
         return mapToProfileResponse(savedUser);
     }
+
+    // ========== Private Helper Methods ==========
 
     /**
      * Map User entity to UserProfileResponse DTO

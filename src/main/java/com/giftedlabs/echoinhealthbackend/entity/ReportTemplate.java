@@ -60,6 +60,14 @@ public class ReportTemplate {
     @Builder.Default
     private Boolean isActive = true;
 
+    // Usage Analytics (UR-034)
+    @Column(name = "usage_count")
+    @Builder.Default
+    private Integer usageCount = 0;
+
+    @Column(name = "last_used_at")
+    private LocalDateTime lastUsedAt;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -67,4 +75,12 @@ public class ReportTemplate {
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
+
+    /**
+     * Increment usage count and update last used timestamp
+     */
+    public void recordUsage() {
+        this.usageCount = (this.usageCount == null ? 0 : this.usageCount) + 1;
+        this.lastUsedAt = LocalDateTime.now();
+    }
 }

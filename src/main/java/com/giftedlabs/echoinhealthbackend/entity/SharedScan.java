@@ -13,8 +13,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Entity for shared scans in the collaboration space.
- * Allows sonographers to share scans for peer review and expert consultation.
+ * Entity for shared scans/images in the SonoShare collaboration space.
+ * Allows sonographers to share scans or images for peer review and expert
+ * consultation.
+ * Can share either a Report OR an uploaded image (or both).
  */
 @Entity
 @Table(name = "shared_scans", indexes = {
@@ -34,21 +36,41 @@ public class SharedScan {
     private String id;
 
     /**
-     * The original report being shared
+     * The original report being shared (optional - can share image instead)
      */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "report_id", nullable = false)
+    @JoinColumn(name = "report_id", nullable = true)
     private Report report;
 
     /**
-     * User who shared the scan
+     * URL to uploaded image for collaboration (stored on R2 bucket)
+     * Used when sharing an image directly without a report
+     */
+    @Column(name = "image_url", length = 1000)
+    private String imageUrl;
+
+    /**
+     * Original filename of the uploaded image
+     */
+    @Column(name = "image_name", length = 255)
+    private String imageName;
+
+    /**
+     * Storage type for the image (LOCAL or R2)
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "image_storage_type", length = 20)
+    private StorageType imageStorageType;
+
+    /**
+     * User who shared the scan/image
      */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "owner_id", nullable = false)
     private User owner;
 
     /**
-     * Level of sharing (specific colleagues, department, facility)
+     * Level of sharing (specific colleagues or everyone)
      */
     @Enumerated(EnumType.STRING)
     @Column(name = "sharing_level", nullable = false, length = 30)
@@ -107,4 +129,18 @@ public class SharedScan {
      */
     @Column(name = "resolution_notes", columnDefinition = "TEXT")
     private String resolutionNotes;
+
+    /**
+     * Check if this share has a report
+     */
+    public boolean hasReport() {
+        return report != null;
+    }
+
+    /**
+     * Check if this share has an image
+     */
+    public boolean hasImage() {
+        return imageUrl != null && !imageUrl.isEmpty();
+    }
 }

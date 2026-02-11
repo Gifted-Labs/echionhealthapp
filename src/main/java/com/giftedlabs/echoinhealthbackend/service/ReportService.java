@@ -1,9 +1,12 @@
 package com.giftedlabs.echoinhealthbackend.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.giftedlabs.echoinhealthbackend.dto.vault.*;
 import com.giftedlabs.echoinhealthbackend.entity.*;
 import com.giftedlabs.echoinhealthbackend.exception.ResourceNotFoundException;
 import com.giftedlabs.echoinhealthbackend.repository.ReportRepository;
+import com.giftedlabs.echoinhealthbackend.repository.ReportVersionRepository;
 import com.giftedlabs.echoinhealthbackend.repository.UserRepository;
 import com.giftedlabs.echoinhealthbackend.util.ReportDocumentParser;
 import com.giftedlabs.echoinhealthbackend.util.TextExtractor;
@@ -17,7 +20,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -26,11 +33,16 @@ import java.util.stream.Collectors;
 public class ReportService {
 
     private final ReportRepository reportRepository;
+    private final ReportVersionRepository versionRepository;
     private final UserRepository userRepository;
     private final FileStorageService fileStorageService;
     private final TextExtractor textExtractor;
     private final ReportDocumentParser documentParser;
     private final AuditService auditService;
+    private final TemplateService templateService;
+    private final ObjectMapper objectMapper;
+
+    // ========== Upload Operations ==========
 
     @Transactional
     public ReportResponse uploadDocument(MultipartFile file, String userId) {
@@ -63,7 +75,7 @@ public class ReportService {
                 .patientId(parsedData.getPatientId())
                 .patientAge(parsedData.getPatientAge())
                 .patientSex(parsedData.getPatientSex())
-                .scanDate(parsedData.getScanDate() != null ? parsedData.getScanDate() : java.time.LocalDate.now())
+                .scanDate(parsedData.getScanDate() != null ? parsedData.getScanDate() : LocalDate.now())
                 .scanType(parsedData.getScanType())
                 .reportType(parsedData.getReportType())
                 .clinicalHistory(parsedData.getClinicalHistory())
@@ -79,6 +91,52 @@ public class ReportService {
 
         return mapToResponse(savedReport);
     }
+
+    /**
+     * Batch upload multiple documents (UR-002)
+     */
+    @Transactional
+    public BatchUploadResponse batchUploadDocuments(List<MultipartFile> files, String userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        List<BatchUploadResponse.BatchUploadResult> results = new ArrayList<>();
+        int successCount = 0;
+        int failureCount = 0;
+
+        for (MultipartFile file : files) {
+            try {
+                ReportResponse response = uploadDocument(file, userId);
+                results.add(BatchUploadResponse.BatchUploadResult.builder()
+                        .filename(file.getOriginalFilename())
+                        .success(true)
+                        .reportId(response.getId())
+                        .build());
+                successCount++;
+            } catch (Exception e) {
+                log.error("Failed to upload file: {}", file.getOriginalFilename(), e);
+                results.add(BatchUploadResponse.BatchUploadResult.builder()
+                        .filename(file.getOriginalFilename())
+                        .success(false)
+                        .errorMessage(e.getMessage())
+                        .build());
+                failureCount++;
+            }
+        }
+
+        auditService.logAction(user, "batch_upload",
+                String.format("Batch uploaded %d files (success: %d, failed: %d)",
+                        files.size(), successCount, failureCount));
+
+        return BatchUploadResponse.builder()
+                .totalFiles(files.size())
+                .successCount(successCount)
+                .failureCount(failureCount)
+                .results(results)
+                .build();
+    }
+
+    // ========== Create/Update Operations ==========
 
     @Transactional
     public ReportResponse createReport(CreateReportRequest request, String userId) {
@@ -103,6 +161,12 @@ public class ReportService {
 
         Report savedReport = reportRepository.save(report);
         reportRepository.updateSearchVector(savedReport.getId());
+
+        // Record template usage if a template was used
+        if (request.getTemplateId() != null && !request.getTemplateId().isEmpty()) {
+            templateService.recordTemplateUsage(request.getTemplateId());
+        }
+
         auditService.logAction(user, "report_created", "Created report for patient: " + request.getPatientName());
 
         return mapToResponse(savedReport);
@@ -113,6 +177,12 @@ public class ReportService {
         Report report = reportRepository.findByIdAndUserId(reportId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Report not found"));
 
+        User user = report.getUser();
+
+        // Create version before updating (UR-031)
+        createVersion(report, user, "Report updated");
+
+        // Apply updates
         if (request.getPatientName() != null)
             report.setPatientName(request.getPatientName());
         if (request.getPatientAge() != null)
@@ -142,7 +212,7 @@ public class ReportService {
 
         Report updatedReport = reportRepository.save(report);
         reportRepository.updateSearchVector(updatedReport.getId());
-        auditService.logAction(report.getUser(), "report_updated", "Updated report: " + reportId);
+        auditService.logAction(user, "report_updated", "Updated report: " + reportId);
 
         return mapToResponse(updatedReport);
     }
@@ -152,19 +222,129 @@ public class ReportService {
         Report report = reportRepository.findByIdAndUserId(reportId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Report not found"));
 
-        // Delete file if exists (async ideally, but sync for now)
-        // TODO: Implement file deletion in FileStorageService
-
         reportRepository.delete(report);
         auditService.logAction(report.getUser(), "report_deleted", "Deleted report: " + reportId);
     }
 
+    // ========== Version History (UR-031) ==========
+
+    /**
+     * Get version history for a report
+     */
+    @Transactional(readOnly = true)
+    public Page<ReportVersionResponse> getVersionHistory(String reportId, String userId, Pageable pageable) {
+        Report report = reportRepository.findByIdAndUserId(reportId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Report not found"));
+
+        return versionRepository.findByReportIdOrderByVersionNumberDesc(reportId, pageable)
+                .map(this::mapToVersionResponse);
+    }
+
+    /**
+     * Get a specific version of a report
+     */
+    @Transactional(readOnly = true)
+    public ReportResponse getReportVersion(String reportId, Integer versionNumber, String userId) {
+        Report report = reportRepository.findByIdAndUserId(reportId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Report not found"));
+
+        ReportVersion version = versionRepository.findByReportIdAndVersionNumber(reportId, versionNumber)
+                .orElseThrow(() -> new ResourceNotFoundException("Version not found"));
+
+        // Parse the stored JSON back to report data
+        try {
+            ReportResponse response = objectMapper.readValue(version.getReportData(), ReportResponse.class);
+            return response;
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to parse version data", e);
+        }
+    }
+
+    /**
+     * Restore a report to a previous version
+     */
+    @Transactional
+    public ReportResponse restoreVersion(String reportId, Integer versionNumber, String userId) {
+        Report report = reportRepository.findByIdAndUserId(reportId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Report not found"));
+
+        ReportVersion version = versionRepository.findByReportIdAndVersionNumber(reportId, versionNumber)
+                .orElseThrow(() -> new ResourceNotFoundException("Version not found"));
+
+        User user = report.getUser();
+
+        // Create version of current state before restoring
+        createVersion(report, user, "Before restoring to version " + versionNumber);
+
+        // Parse the stored JSON and restore
+        try {
+            Map<String, Object> data = objectMapper.readValue(version.getReportData(), Map.class);
+
+            if (data.get("patientName") != null)
+                report.setPatientName((String) data.get("patientName"));
+            if (data.get("patientId") != null)
+                report.setPatientId((String) data.get("patientId"));
+            if (data.get("clinicalHistory") != null)
+                report.setClinicalHistory((String) data.get("clinicalHistory"));
+            if (data.get("findings") != null)
+                report.setFindings((String) data.get("findings"));
+            if (data.get("impression") != null)
+                report.setImpression((String) data.get("impression"));
+            if (data.get("recommendation") != null)
+                report.setRecommendation((String) data.get("recommendation"));
+
+            Report restoredReport = reportRepository.save(report);
+            reportRepository.updateSearchVector(restoredReport.getId());
+
+            auditService.logAction(user, "report_restored",
+                    String.format("Restored report %s to version %d", reportId, versionNumber));
+
+            return mapToResponse(restoredReport);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to restore version", e);
+        }
+    }
+
+    private void createVersion(Report report, User changedBy, String description) {
+        int nextVersion = versionRepository.findMaxVersionNumber(report.getId()) + 1;
+
+        try {
+            // Create a JSON snapshot of the report
+            Map<String, Object> reportData = new HashMap<>();
+            reportData.put("patientName", report.getPatientName());
+            reportData.put("patientId", report.getPatientId());
+            reportData.put("patientAge", report.getPatientAge());
+            reportData.put("patientSex", report.getPatientSex() != null ? report.getPatientSex().name() : null);
+            reportData.put("scanDate", report.getScanDate() != null ? report.getScanDate().toString() : null);
+            reportData.put("scanType", report.getScanType() != null ? report.getScanType().name() : null);
+            reportData.put("reportType", report.getReportType() != null ? report.getReportType().name() : null);
+            reportData.put("clinicalHistory", report.getClinicalHistory());
+            reportData.put("findings", report.getFindings());
+            reportData.put("impression", report.getImpression());
+            reportData.put("recommendation", report.getRecommendation());
+            reportData.put("tags", report.getTags());
+
+            String jsonData = objectMapper.writeValueAsString(reportData);
+
+            ReportVersion version = ReportVersion.builder()
+                    .report(report)
+                    .versionNumber(nextVersion)
+                    .reportData(jsonData)
+                    .changedBy(changedBy)
+                    .changeDescription(description)
+                    .build();
+
+            versionRepository.save(version);
+            log.debug("Created version {} for report {}", nextVersion, report.getId());
+        } catch (JsonProcessingException e) {
+            log.error("Failed to create version for report {}", report.getId(), e);
+        }
+    }
+
+    // ========== Read Operations ==========
+
     @Transactional(readOnly = true)
     public Page<ReportResponse> searchReports(SearchReportsRequest request, String userId, Pageable pageable) {
-        // The native query already has its own ORDER BY clause, so we must NOT pass
-        // sorting in Pageable
-        // Otherwise Spring Data JPA will append another ORDER BY causing a SQL syntax
-        // error
         Pageable unsortedPageable = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), Sort.unsorted());
 
         Page<Report> reports = reportRepository.searchReports(
@@ -192,6 +372,8 @@ public class ReportService {
                 .map(this::mapToSummary)
                 .collect(Collectors.toList());
     }
+
+    // ========== Mappers ==========
 
     private ReportResponse mapToResponse(Report report) {
         return ReportResponse.builder()
@@ -239,6 +421,18 @@ public class ReportService {
                 .isFavorite(report.getIsFavorite())
                 .hasFile(report.getFilePath() != null)
                 .createdAt(report.getCreatedAt())
+                .build();
+    }
+
+    private ReportVersionResponse mapToVersionResponse(ReportVersion version) {
+        return ReportVersionResponse.builder()
+                .id(version.getId())
+                .reportId(version.getReport().getId())
+                .versionNumber(version.getVersionNumber())
+                .changeDescription(version.getChangeDescription())
+                .changedByName(version.getChangedBy() != null ? version.getChangedBy().getFullName() : null)
+                .changedByEmail(version.getChangedBy() != null ? version.getChangedBy().getEmail() : null)
+                .createdAt(version.getCreatedAt())
                 .build();
     }
 }

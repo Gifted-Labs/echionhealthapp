@@ -10,10 +10,13 @@ import com.giftedlabs.echoinhealthbackend.repository.ReportRepository;
 import com.giftedlabs.echoinhealthbackend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import static com.giftedlabs.echoinhealthbackend.util.CacheNames.DASHBOARD_STATS;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -40,10 +43,15 @@ public class AdminService {
     // ========== Dashboard Statistics ==========
 
     /**
-     * Get comprehensive dashboard statistics
+     * Get comprehensive dashboard statistics.
+     * Results are cached for 5 minutes to reduce database load.
+     *
+     * @return Dashboard statistics response
      */
     @Transactional(readOnly = true)
+    @Cacheable(value = DASHBOARD_STATS, key = "'global'")
     public DashboardStatsResponse getDashboardStats() {
+        log.debug("Cache miss: fetching dashboard statistics");
         LocalDateTime startOfToday = LocalDate.now().atStartOfDay();
         LocalDateTime startOfWeek = LocalDate.now().minusDays(7).atStartOfDay();
 

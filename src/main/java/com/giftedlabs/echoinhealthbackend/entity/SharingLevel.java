@@ -1,10 +1,16 @@
 package com.giftedlabs.echoinhealthbackend.entity;
 
 /**
- * Sharing level for shared scans
+ * Sharing level for shared scans in SonoShare collaboration
  */
 public enum SharingLevel {
-    SPECIFIC_COLLEAGUES, // Shared with specific selected users
-    DEPARTMENT_WIDE, // Shared with all users in the same department
-    FACILITY_WIDE // Shared with all users in the same hospital/facility
+    /**
+     * Shared with specific selected users only
+     */
+    SPECIFIC_COLLEAGUES,
+
+    /**
+     * Shared with everyone on the entire system
+     */
+    EVERYONE
 }

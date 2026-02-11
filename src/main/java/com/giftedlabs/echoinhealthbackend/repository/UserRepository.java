@@ -18,67 +18,79 @@ import java.util.Optional;
 @Repository
 public interface UserRepository extends JpaRepository<User, String> {
 
-    /**
-     * Find a user by email address
-     */
-    Optional<User> findByEmail(String email);
+        /**
+         * Find a user by email address
+         */
+        Optional<User> findByEmail(String email);
 
-    /**
-     * Check if a user exists with the given email
-     */
-    boolean existsByEmail(String email);
+        /**
+         * Check if a user exists with the given email
+         */
+        boolean existsByEmail(String email);
 
-    /**
-     * Find a user by email and check if email is verified
-     */
-    Optional<User> findByEmailAndEmailVerified(String email, Boolean emailVerified);
+        /**
+         * Find a user by email and check if email is verified
+         */
+        Optional<User> findByEmailAndEmailVerified(String email, Boolean emailVerified);
 
-    // ========== Admin Methods ==========
+        // ========== Admin Methods ==========
 
-    /**
-     * Find all users by role
-     */
-    List<User> findByRole(Role role);
+        /**
+         * Find all users by role
+         */
+        List<User> findByRole(Role role);
 
-    /**
-     * Count users by role
-     */
-    long countByRole(Role role);
+        /**
+         * Count users by role
+         */
+        long countByRole(Role role);
 
-    /**
-     * Count locked accounts
-     */
-    long countByAccountLockedTrue();
+        /**
+         * Count locked accounts
+         */
+        long countByAccountLockedTrue();
 
-    /**
-     * Count verified users
-     */
-    long countByEmailVerifiedTrue();
+        /**
+         * Count verified users
+         */
+        long countByEmailVerifiedTrue();
 
-    /**
-     * Search users by name or email with optional filters
-     */
-    @Query("""
-            SELECT u FROM User u
-            WHERE (:search IS NULL OR :search = '' OR
-                   LOWER(u.firstName) LIKE LOWER(CONCAT('%', :search, '%')) OR
-                   LOWER(u.lastName) LIKE LOWER(CONCAT('%', :search, '%')) OR
-                   LOWER(u.email) LIKE LOWER(CONCAT('%', :search, '%')))
-            AND (:role IS NULL OR u.role = :role)
-            AND (:locked IS NULL OR u.accountLocked = :locked)
-            AND (:verified IS NULL OR u.emailVerified = :verified)
-            ORDER BY u.createdAt DESC
-            """)
-    Page<User> searchUsers(
-            @Param("search") String search,
-            @Param("role") Role role,
-            @Param("locked") Boolean locked,
-            @Param("verified") Boolean verified,
-            Pageable pageable);
+        /**
+         * Search users by name or email with optional filters
+         */
+        @Query("""
+                        SELECT u FROM User u
+                        WHERE (:search IS NULL OR :search = '' OR
+                               LOWER(u.firstName) LIKE LOWER(CONCAT('%', :search, '%')) OR
+                               LOWER(u.lastName) LIKE LOWER(CONCAT('%', :search, '%')) OR
+                               LOWER(u.email) LIKE LOWER(CONCAT('%', :search, '%')))
+                        AND (:role IS NULL OR u.role = :role)
+                        AND (:locked IS NULL OR u.accountLocked = :locked)
+                        AND (:verified IS NULL OR u.emailVerified = :verified)
+                        ORDER BY u.createdAt DESC
+                        """)
+        Page<User> searchUsers(
+                        @Param("search") String search,
+                        @Param("role") Role role,
+                        @Param("locked") Boolean locked,
+                        @Param("verified") Boolean verified,
+                        Pageable pageable);
 
-    /**
-     * Find users created in the last N days
-     */
-    @Query("SELECT u FROM User u WHERE u.createdAt >= :since ORDER BY u.createdAt DESC")
-    List<User> findRecentUsers(@Param("since") java.time.LocalDateTime since);
+        /**
+         * Find users created in the last N days
+         */
+        @Query("SELECT u FROM User u WHERE u.createdAt >= :since ORDER BY u.createdAt DESC")
+        List<User> findRecentUsers(@Param("since") java.time.LocalDateTime since);
+
+        /**
+         * Find users in the same department (excluding a specific user)
+         * Used for department-wide scan sharing
+         */
+        List<User> findByDepartmentAndIdNot(String department, String id);
+
+        /**
+         * Find users in the same hospital (excluding a specific user)
+         * Used for facility-wide scan sharing
+         */
+        List<User> findByHospitalNameAndIdNot(String hospitalName, String id);
 }
