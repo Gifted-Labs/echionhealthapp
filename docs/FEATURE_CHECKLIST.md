@@ -167,6 +167,7 @@ This document maps the User Requirements Document (URD) to the current implement
 | Duplicate Templates | UR-032 | `POST /vault/templates/{id}/duplicate` |
 | Usage Analytics | UR-034 | `GET /vault/templates/analytics` |
 | Encryption at Rest | UR-052 | `EncryptionUtil` (AES-256-GCM) |
+| Analytics Dashboard | N/A | `GET /analytics/dashboard` |
 
 ---
 

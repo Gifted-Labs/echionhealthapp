@@ -195,6 +195,15 @@ requestMessage: "Please review this scan"
 
 ---
 
+### 3.8 Analytics (`/analytics`)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/analytics/dashboard` | Get aggregated analytics metrics (Admin only) |
+
+
+---
+
 ## 4. Configuration
 
 ### Environment Variables
@@ -252,7 +261,7 @@ Access interactive API documentation at:
 | Entity | Description |
 |--------|-------------|
 | `User` | User accounts with roles |
-| `Report` | Scan reports |
+| `Report` | Scan reports (includes AI generation status, processing time) |
 | `ReportTemplate` | Saved templates |
 | `Folder` | Report organization |
 | `SharedScan` | Collaboration shares |
