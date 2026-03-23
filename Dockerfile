@@ -32,8 +32,8 @@ ENV SERVER_PORT=8080
 ENV STORAGE_TYPE=local
 ENV LOCAL_STORAGE_PATH=/app/data
 
-# Create volume for local storage
-VOLUME /app/data
+# Ensure local storage path exists (Railway volume can be mounted here)
+RUN mkdir -p /app/data
 
 # Run the application
 ENTRYPOINT ["java", "-jar", "app.jar"]
