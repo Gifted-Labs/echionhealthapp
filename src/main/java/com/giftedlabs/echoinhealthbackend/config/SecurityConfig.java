@@ -83,7 +83,7 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration
-                .setAllowedOrigins(List.of("http://localhost:3000", "http://localhost:4200", "http://localhost:8000"));
+                .setAllowedOrigins(List.of("http://localhost:3000", "http://localhost:4200", "http://localhost:8000","https://echionhealth.com"));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setExposedHeaders(Arrays.asList("Authorization"));
