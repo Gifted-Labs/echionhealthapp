@@ -28,9 +28,7 @@ public class EncryptionUtil {
 
     public EncryptionUtil(@Value("${encryption.key:}") String encryptionKey) {
         if (encryptionKey == null || encryptionKey.isEmpty()) {
-            // Default key for development (should be set in production)
-            encryptionKey = "EchionHealthAES256SecretKey12345";
-            log.warn("Using default encryption key - set ENCRYPTION_KEY in production!");
+            throw new IllegalStateException("Encryption key must be configured");
         }
 
         // Ensure key is exactly 32 bytes for AES-256

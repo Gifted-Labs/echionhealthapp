@@ -16,7 +16,10 @@ import java.time.LocalDateTime;
  * Supports staged registration: basic info first, professional details later.
  */
 @Entity
-@Table(name = "users")
+@Table(name = "users", indexes = {
+        @Index(name = "idx_users_org_role", columnList = "organization_id,role"),
+        @Index(name = "idx_users_org_username", columnList = "organization_id,username")
+})
 @Data
 @Builder
 @NoArgsConstructor
@@ -28,8 +31,15 @@ public class User {
     private String id;
 
     // Basic Authentication Fields (Required at Registration)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "organization_id")
+    private Organization organization;
+
     @Column(nullable = false, unique = true, length = 255)
     private String email;
+
+    @Column(length = 100)
+    private String username;
 
     @Column(nullable = false, length = 255)
     private String passwordHash;
@@ -59,6 +69,10 @@ public class User {
     @Builder.Default
     private Role role = Role.SONOGRAPHER;
 
+    @Enumerated(EnumType.STRING)
+    @Column(length = 50)
+    private Designation designation;
+
     @Column(nullable = false)
     @Builder.Default
     private Boolean emailVerified = false;
@@ -66,6 +80,21 @@ public class User {
     @Column(nullable = false)
     @Builder.Default
     private Boolean accountLocked = false;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private Boolean active = true;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private Boolean canUploadSignature = false;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private Boolean mfaEnabled = false;
+
+    @Column(length = 255)
+    private String mfaSecret;
 
     // Timestamps
     @CreationTimestamp
@@ -95,5 +124,9 @@ public class User {
     public boolean hasCompletedProfile() {
         return phone != null && hospitalName != null &&
                 department != null && serviceNumber != null;
+    }
+
+    public String getOrganizationId() {
+        return organization != null ? organization.getId() : null;
     }
 }

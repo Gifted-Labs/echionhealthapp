@@ -43,6 +43,14 @@ public class RefreshToken {
     private LocalDateTime revokedAt;
 
     /**
+     * When this session last showed activity. Drives the sliding idle-timeout window (UR-089):
+     * a session that stops refreshing stops being renewable, independently of the refresh
+     * token's absolute expiry.
+     */
+    @Column(name = "last_used_at")
+    private LocalDateTime lastUsedAt;
+
+    /**
      * Check if the token has expired
      */
     public boolean isExpired() {

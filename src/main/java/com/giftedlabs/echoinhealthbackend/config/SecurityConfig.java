@@ -2,6 +2,7 @@ package com.giftedlabs.echoinhealthbackend.config;
 
 import com.giftedlabs.echoinhealthbackend.security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -37,34 +38,46 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthFilter;
     private final UserDetailsService userDetailsService;
 
+    @Value("${SWAGGER_ENABLED:false}")
+    private String swaggerEnabled;
+
     /**
      * Configure security filter chain
      */
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        String[] publicMatchers = isSwaggerEnabled()
+                ? new String[] {
+                        "/auth/register",
+                        "/auth/login",
+                        "/auth/verify-email",
+                        "/auth/resend-verification",
+                        "/auth/refresh",
+                        "/api-docs/**",
+                        "/swagger-ui/**",
+                        "/swagger-ui.html",
+                        "/v3/api-docs/**",
+                        "/swagger-resources/**",
+                        "/configuration/**",
+                        "/webjars/**",
+                        "/error" }
+                : new String[] {
+                        "/auth/register",
+                        "/auth/login",
+                        "/auth/verify-email",
+                        "/auth/resend-verification",
+                        "/auth/refresh",
+                        "/error" };
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .authorizeHttpRequests(auth -> auth
                         // Public endpoints (no /api prefix needed - context path handles it)
-                        .requestMatchers(
-                                "/auth/register",
-                                "/auth/login",
-                                "/auth/verify-email",
-                                "/auth/resend-verification",
-                                "/auth/refresh",
-                                "/api-docs/**",
-                                "/swagger-ui/**",
-                                "/swagger-ui.html",
-                                "/v3/api-docs/**",
-                                "/swagger-resources/**",
-                                "/configuration/**",
-                                "/webjars/**",
-                                "/error")
+                        .requestMatchers(publicMatchers)
                         .permitAll()
 
-                        // Admin endpoints require ADMIN or SUPER_ADMIN role
-                        .requestMatchers("/admin/**").hasAnyRole("ADMIN", "SUPER_ADMIN")
+                        // Admin endpoints require tenant or platform admin role
+                        .requestMatchers("/admin/**").hasAnyRole("HOSPITAL_ADMIN", "ADMIN", "SUPER_ADMIN")
 
                         // All other endpoints require authentication
                         .anyRequest().authenticated())
@@ -74,6 +87,19 @@ public class SecurityConfig {
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
+    }
+
+    private boolean isSwaggerEnabled() {
+        if (swaggerEnabled == null) {
+            return false;
+        }
+
+        String normalized = swaggerEnabled.trim();
+        if (normalized.length() >= 2 && normalized.startsWith("\"") && normalized.endsWith("\"")) {
+            normalized = normalized.substring(1, normalized.length() - 1).trim();
+        }
+
+        return Boolean.parseBoolean(normalized);
     }
 
     /**

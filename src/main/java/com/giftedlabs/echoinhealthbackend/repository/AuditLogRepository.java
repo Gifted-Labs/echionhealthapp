@@ -28,6 +28,10 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, String> {
          */
         Page<AuditLog> findByUserId(String userId, Pageable pageable);
 
+        Page<AuditLog> findByUserIdAndOrganizationId(String userId, String organizationId, Pageable pageable);
+
+        long countByOrganizationId(String organizationId);
+
         /**
          * Find audit logs by action type
          */
@@ -65,6 +69,25 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, String> {
                         @Param("endDate") LocalDateTime endDate,
                         Pageable pageable);
 
+        @Query("""
+                        SELECT a FROM AuditLog a
+                        WHERE a.organization.id = :organizationId
+                        AND (:action IS NULL OR :action = '' OR a.action = :action)
+                        AND (:userEmail IS NULL OR :userEmail = '' OR LOWER(a.userEmail) LIKE LOWER(CONCAT('%', :userEmail, '%')))
+                        AND (cast(:success as boolean) IS NULL OR a.success = :success)
+                        AND (cast(:startDate as timestamp) IS NULL OR a.createdAt >= :startDate)
+                        AND (cast(:endDate as timestamp) IS NULL OR a.createdAt <= :endDate)
+                        ORDER BY a.createdAt DESC
+                        """)
+        Page<AuditLog> searchAuditLogsByOrganization(
+                        @Param("organizationId") String organizationId,
+                        @Param("action") String action,
+                        @Param("userEmail") String userEmail,
+                        @Param("success") Boolean success,
+                        @Param("startDate") LocalDateTime startDate,
+                        @Param("endDate") LocalDateTime endDate,
+                        Pageable pageable);
+
         /**
          * Get distinct action types
          */
@@ -82,20 +105,39 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, String> {
         @Query("SELECT COUNT(a) FROM AuditLog a WHERE a.success = false AND a.createdAt >= :since")
         long countFailedActionsSince(@Param("since") LocalDateTime since);
 
+        @Query("SELECT COUNT(a) FROM AuditLog a WHERE a.organization.id = :organizationId AND a.success = false AND a.createdAt >= :since")
+        long countFailedActionsSinceByOrganization(@Param("organizationId") String organizationId,
+                        @Param("since") LocalDateTime since);
+
         /**
          * Get recent activity (last N hours)
          */
         @Query("SELECT a FROM AuditLog a WHERE a.createdAt >= :since ORDER BY a.createdAt DESC")
         List<AuditLog> findRecentActivity(@Param("since") LocalDateTime since);
 
+        @Query("SELECT a FROM AuditLog a WHERE a.organization.id = :organizationId AND a.createdAt >= :since ORDER BY a.createdAt DESC")
+        List<AuditLog> findRecentActivityByOrganization(@Param("organizationId") String organizationId,
+                        @Param("since") LocalDateTime since);
+
+        Page<AuditLog> findByOrganizationIdAndDetailsContainingOrderByCreatedAtDesc(
+                        String organizationId,
+                        String details,
+                        Pageable pageable);
+
         /**
          * Count logs in date range
          */
         long countByCreatedAtAfter(LocalDateTime since);
+
+        long countByOrganizationIdAndCreatedAtAfter(String organizationId, LocalDateTime since);
 
         /**
          * Count distinct active users since a given time
          */
         @Query("SELECT COUNT(DISTINCT a.user) FROM AuditLog a WHERE a.createdAt >= :since")
         long countDistinctUsersActiveSince(@Param("since") LocalDateTime since);
+
+        @Query("SELECT COUNT(DISTINCT a.user) FROM AuditLog a WHERE a.organization.id = :organizationId AND a.createdAt >= :since")
+        long countDistinctUsersActiveSinceByOrganization(@Param("organizationId") String organizationId,
+                        @Param("since") LocalDateTime since);
 }

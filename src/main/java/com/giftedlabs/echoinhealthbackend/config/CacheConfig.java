@@ -17,13 +17,17 @@ import static com.giftedlabs.echoinhealthbackend.util.CacheNames.*;
  * 
  * Cache strategies:
  * - users: 15-minute TTL, max 1000 entries (frequently accessed user profiles)
+ * - authUsers: 14-minute TTL, max 10,000 entries (JWT-authenticated principals)
  * - templates: 30-minute TTL, max 500 entries (rarely changed report templates)
  * - dashboardStats: 5-minute TTL (admin statistics that don't require real-time
  * accuracy)
  * - notificationCounts: 1-minute TTL (near real-time notification badges)
  */
 @Configuration
-@EnableCaching
+// proxyTargetClass matches Spring Boot's own AOP default. Stating it explicitly keeps
+// class-based proxies in narrower contexts (such as slice tests) too, so beans that are
+// injected by concrete type — CustomUserDetailsService, for one — resolve consistently.
+@EnableCaching(proxyTargetClass = true)
 public class CacheConfig {
 
     @Bean
@@ -32,6 +36,7 @@ public class CacheConfig {
         CaffeineCacheManager cacheManager = new CaffeineCacheManager();
         cacheManager.setCaffeine(defaultCacheBuilder());
         cacheManager.registerCustomCache(USERS, usersCacheBuilder().build());
+        cacheManager.registerCustomCache(AUTH_USERS, authUsersCacheBuilder().build());
         cacheManager.registerCustomCache(TEMPLATES, templatesCacheBuilder().build());
         cacheManager.registerCustomCache(DASHBOARD_STATS, dashboardStatsCacheBuilder().build());
         cacheManager.registerCustomCache(NOTIFICATION_COUNTS, notificationCountsCacheBuilder().build());
@@ -56,6 +61,17 @@ public class CacheConfig {
         return Caffeine.newBuilder()
                 .expireAfterWrite(15, TimeUnit.MINUTES)
                 .maximumSize(1000)
+                .recordStats();
+    }
+
+    /**
+     * Authenticated user cache - 14 minute TTL to stay below JWT expiry.
+     * Used by JWT authentication to avoid hitting the database on every request.
+     */
+    private Caffeine<Object, Object> authUsersCacheBuilder() {
+        return Caffeine.newBuilder()
+                .expireAfterWrite(14, TimeUnit.MINUTES)
+                .maximumSize(10_000)
                 .recordStats();
     }
 

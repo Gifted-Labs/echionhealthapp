@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "audit_logs", indexes = {
+        @Index(name = "idx_audit_org_created", columnList = "organization_id,created_at"),
         @Index(name = "idx_user_id", columnList = "user_id"),
         @Index(name = "idx_action", columnList = "action"),
         @Index(name = "idx_created_at", columnList = "created_at")
@@ -28,6 +29,10 @@ public class AuditLog {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "organization_id")
+    private Organization organization;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id")

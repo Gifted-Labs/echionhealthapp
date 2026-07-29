@@ -1,6 +1,7 @@
 package com.giftedlabs.echoinhealthbackend.dto.auth;
 
 import com.giftedlabs.echoinhealthbackend.entity.Role;
+import com.giftedlabs.echoinhealthbackend.entity.Designation;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -19,7 +20,10 @@ import java.time.LocalDateTime;
 public class UserProfileResponse {
 
     private String id;
+    private String organizationId;
+    private String organizationName;
     private String email;
+    private String username;
     private String firstName;
     private String lastName;
     private String phone;
@@ -27,7 +31,11 @@ public class UserProfileResponse {
     private String department;
     private String serviceNumber;
     private Role role;
+    private Designation designation;
     private Boolean emailVerified;
+    private Boolean active;
+    private Boolean canUploadSignature;
+    private Boolean mfaEnabled;
     private Boolean profileCompleted;
     private LocalDateTime createdAt;
     private LocalDateTime profileUpdatedAt;

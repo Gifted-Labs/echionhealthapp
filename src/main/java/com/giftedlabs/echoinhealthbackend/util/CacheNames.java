@@ -13,6 +13,9 @@ public final class CacheNames {
     /** Cache for user entities (by email and id) */
     public static final String USERS = "users";
 
+    /** Cache for authenticated user principals */
+    public static final String AUTH_USERS = "authUsers";
+
     /** Cache for user templates */
     public static final String TEMPLATES = "templates";
 
