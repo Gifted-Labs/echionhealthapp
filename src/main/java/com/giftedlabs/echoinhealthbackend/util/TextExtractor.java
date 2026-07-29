@@ -54,6 +54,8 @@ public class TextExtractor {
                     log.warn("Failed to extract as .docx, might be .doc or other format", e);
                     return "";
                 }
+            } else if (contentType.equals("text/plain")) {
+                return new String(inputStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
             } else {
                 log.warn("Unsupported content type for text extraction: {}", contentType);
                 return "";

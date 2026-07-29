@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "shared_scan_access", indexes = {
+        @Index(name = "idx_access_org_scan_user", columnList = "organization_id,shared_scan_id,user_id"),
         @Index(name = "idx_access_shared_scan", columnList = "shared_scan_id"),
         @Index(name = "idx_access_user", columnList = "user_id")
 })
@@ -27,6 +28,10 @@ public class SharedScanAccess {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "organization_id", nullable = false)
+    private Organization organization;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "shared_scan_id", nullable = false)

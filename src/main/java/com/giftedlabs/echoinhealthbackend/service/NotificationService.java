@@ -125,6 +125,7 @@ public class NotificationService {
             String message) {
 
         CollaborationNotification notification = CollaborationNotification.builder()
+                .organization(recipient.getOrganization())
                 .recipient(recipient)
                 .sender(sender)
                 .type(type)
@@ -148,9 +149,9 @@ public class NotificationService {
      * Get paginated notifications for a user
      */
     @Transactional(readOnly = true)
-    public Page<NotificationResponse> getNotifications(String userId, Pageable pageable) {
+    public Page<NotificationResponse> getNotifications(String userId, String organizationId, Pageable pageable) {
         return notificationRepository
-                .findByRecipientIdOrderByCreatedAtDesc(userId, pageable)
+                .findByRecipientIdAndOrganizationIdOrderByCreatedAtDesc(userId, organizationId, pageable)
                 .map(this::mapToResponse);
     }
 
@@ -158,9 +159,9 @@ public class NotificationService {
      * Get unread notifications for a user
      */
     @Transactional(readOnly = true)
-    public List<NotificationResponse> getUnreadNotifications(String userId) {
+    public List<NotificationResponse> getUnreadNotifications(String userId, String organizationId) {
         return notificationRepository
-                .findByRecipientIdAndIsReadFalseOrderByCreatedAtDesc(userId)
+                .findByRecipientIdAndOrganizationIdAndIsReadFalseOrderByCreatedAtDesc(userId, organizationId)
                 .stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
@@ -175,9 +176,9 @@ public class NotificationService {
      */
     @Transactional(readOnly = true)
     @Cacheable(value = NOTIFICATION_COUNTS, key = "#userId")
-    public long getUnreadCount(String userId) {
+    public long getUnreadCount(String userId, String organizationId) {
         log.debug("Cache miss: fetching unread count for user: {}", userId);
-        return notificationRepository.countByRecipientIdAndIsReadFalse(userId);
+        return notificationRepository.countByRecipientIdAndOrganizationIdAndIsReadFalse(userId, organizationId);
     }
 
     /**
@@ -190,11 +191,12 @@ public class NotificationService {
      */
     @Transactional
     @CacheEvict(value = NOTIFICATION_COUNTS, key = "#userId")
-    public NotificationResponse markAsRead(String notificationId, String userId) {
+    public NotificationResponse markAsRead(String notificationId, String userId, String organizationId) {
         CollaborationNotification notification = notificationRepository.findById(notificationId)
                 .orElseThrow(() -> new RuntimeException("Notification not found"));
 
-        if (!notification.getRecipient().getId().equals(userId)) {
+        if (!notification.getRecipient().getId().equals(userId)
+                || !organizationId.equals(notification.getOrganization().getId())) {
             throw new RuntimeException("Not authorized to mark this notification as read");
         }
 
@@ -214,8 +216,8 @@ public class NotificationService {
      */
     @Transactional
     @CacheEvict(value = NOTIFICATION_COUNTS, key = "#userId")
-    public int markAllAsRead(String userId) {
-        return notificationRepository.markAllAsRead(userId, LocalDateTime.now());
+    public int markAllAsRead(String userId, String organizationId) {
+        return notificationRepository.markAllAsRead(userId, organizationId, LocalDateTime.now());
     }
 
     // ========== Mapping ==========

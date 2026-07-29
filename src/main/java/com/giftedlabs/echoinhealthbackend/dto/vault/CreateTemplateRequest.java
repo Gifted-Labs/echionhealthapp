@@ -2,6 +2,7 @@ package com.giftedlabs.echoinhealthbackend.dto.vault;
 
 import com.giftedlabs.echoinhealthbackend.entity.Gender;
 import com.giftedlabs.echoinhealthbackend.entity.ReportType;
+import com.giftedlabs.echoinhealthbackend.entity.ScanType;
 import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -26,9 +27,15 @@ public class CreateTemplateRequest {
 
     private ReportType reportType;
 
+    private ScanType scanType;
+
+    private String category;
+
     private String defaultFindings;
 
     private String defaultImpression;
+
+    private String[] tags;
 
     @Builder.Default
     private Boolean isDefault = false;

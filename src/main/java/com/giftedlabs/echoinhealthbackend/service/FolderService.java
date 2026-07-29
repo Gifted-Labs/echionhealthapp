@@ -25,19 +25,24 @@ public class FolderService {
     public FolderResponse createFolder(CreateFolderRequest request, String userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        String organizationId = user.getOrganizationId();
 
         Folder parentFolder = null;
         if (request.getParentFolderId() != null) {
-            parentFolder = folderRepository.findByIdAndUserId(request.getParentFolderId(), userId)
+            parentFolder = folderRepository.findByIdAndUserIdAndOrganizationId(
+                    request.getParentFolderId(),
+                    userId,
+                    organizationId)
                     .orElseThrow(() -> new ResourceNotFoundException("Parent folder not found"));
         }
 
-        if (folderRepository.existsByUserIdAndNameAndParentFolderId(
-                userId, request.getName(), request.getParentFolderId())) {
+        if (folderRepository.existsByUserIdAndOrganizationIdAndNameAndParentFolderId(
+                userId, organizationId, request.getName(), request.getParentFolderId())) {
             throw new IllegalArgumentException("Folder with this name already exists in this location");
         }
 
         Folder folder = Folder.builder()
+                .organization(user.getOrganization())
                 .user(user)
                 .name(request.getName())
                 .description(request.getDescription())
@@ -50,14 +55,21 @@ public class FolderService {
 
     @Transactional(readOnly = true)
     public List<FolderResponse> getRootFolders(String userId) {
-        return folderRepository.findByUserIdAndParentFolderIsNull(userId).stream()
+        String organizationId = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"))
+                .getOrganizationId();
+        return folderRepository.findByUserIdAndOrganizationIdAndParentFolderIsNull(userId, organizationId).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
     public List<FolderResponse> getSubFolders(String folderId, String userId) {
-        return folderRepository.findByUserIdAndParentFolderId(userId, folderId).stream()
+        String organizationId = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"))
+                .getOrganizationId();
+        return folderRepository.findByUserIdAndOrganizationIdAndParentFolderId(userId, organizationId, folderId)
+                .stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }

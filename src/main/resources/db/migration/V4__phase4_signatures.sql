@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS signatures (
+    id VARCHAR(36) PRIMARY KEY,
+    organization_id VARCHAR(36) NOT NULL,
+    user_id VARCHAR(36) NOT NULL,
+    label VARCHAR(100) NOT NULL,
+    image_url VARCHAR(1000) NOT NULL,
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_signatures_org_user ON signatures (organization_id, user_id);
+
+ALTER TABLE IF EXISTS reports
+    ADD COLUMN IF NOT EXISTS applied_signature_id VARCHAR(36);
+ALTER TABLE IF EXISTS reports
+    ADD COLUMN IF NOT EXISTS signatory_name VARCHAR(255);
+ALTER TABLE IF EXISTS reports
+    ADD COLUMN IF NOT EXISTS signatory_designation VARCHAR(50);
+ALTER TABLE IF EXISTS reports
+    ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMP;

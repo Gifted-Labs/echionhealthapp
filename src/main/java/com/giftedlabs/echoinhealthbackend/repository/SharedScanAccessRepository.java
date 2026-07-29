@@ -13,20 +13,21 @@ public interface SharedScanAccessRepository extends JpaRepository<SharedScanAcce
     /**
      * Find access entry for a specific user and shared scan
      */
-    Optional<SharedScanAccess> findBySharedScanIdAndUserId(String sharedScanId, String userId);
+    Optional<SharedScanAccess> findBySharedScanIdAndUserIdAndOrganizationId(String sharedScanId, String userId,
+            String organizationId);
 
     /**
      * Check if user has access to a shared scan
      */
-    boolean existsBySharedScanIdAndUserId(String sharedScanId, String userId);
+    boolean existsBySharedScanIdAndUserIdAndOrganizationId(String sharedScanId, String userId, String organizationId);
 
     /**
      * Find all access entries for a shared scan
      */
-    List<SharedScanAccess> findBySharedScanId(String sharedScanId);
+    List<SharedScanAccess> findBySharedScanIdAndOrganizationId(String sharedScanId, String organizationId);
 
     /**
      * Delete all access entries for a shared scan
      */
-    void deleteBySharedScanId(String sharedScanId);
+    void deleteBySharedScanIdAndOrganizationId(String sharedScanId, String organizationId);
 }

@@ -1,5 +1,6 @@
 package com.giftedlabs.echoinhealthbackend.service;
 
+import com.giftedlabs.echoinhealthbackend.dto.admin.AuditLogResponse;
 import com.giftedlabs.echoinhealthbackend.dto.collaboration.*;
 import com.giftedlabs.echoinhealthbackend.entity.*;
 import com.giftedlabs.echoinhealthbackend.exception.AccessDeniedException;
@@ -16,6 +17,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -39,6 +41,9 @@ public class CollaborationService {
     private final FileStorageService fileStorageService;
     private final NotificationService notificationService;
     private final AuditService auditService;
+    private final AuditLogRepository auditLogRepository;
+    private final BillingService billingService;
+    private final FileValidationService fileValidationService;
 
     // ========== Share Scan/Image ==========
 
@@ -60,13 +65,21 @@ public class CollaborationService {
 
         // Get report if provided
         if (request.getReportId() != null && !request.getReportId().isEmpty()) {
-            report = reportRepository.findByIdAndUserId(request.getReportId(), owner.getId())
+            report = reportRepository.findByIdAndUserIdAndOrganizationId(
+                            request.getReportId(),
+                            owner.getId(),
+                            owner.getOrganizationId())
                     .orElseThrow(() -> new ResourceNotFoundException("Report not found or not owned by you"));
         }
 
         // Handle image upload if provided
         if (imageFile != null && !imageFile.isEmpty()) {
-            imageUrl = fileStorageService.storeFile(imageFile, owner.getId());
+            fileValidationService.requireAllowedContentTypeWithDeclaredFallback(
+                    imageFile,
+                    java.util.Set.of("image/png", "image/jpeg", "image/webp"),
+                    "Shared image must be PNG, JPG, or WEBP");
+            billingService.assertStorageCapacity(owner.getOrganization(), imageFile.getSize());
+            imageUrl = fileStorageService.storeFile(imageFile, owner.getOrganizationId(), owner.getId());
             imageName = imageFile.getOriginalFilename();
             imageStorageType = fileStorageService.getCurrentStorageType();
         }
@@ -78,14 +91,18 @@ public class CollaborationService {
 
         // Create shared scan
         SharedScan sharedScan = SharedScan.builder()
+                .organization(owner.getOrganization())
                 .report(report)
                 .imageUrl(imageUrl)
                 .imageName(imageName)
+                .imageSize(imageFile != null ? imageFile.getSize() : null)
                 .imageStorageType(imageStorageType)
                 .owner(owner)
                 .sharingLevel(request.getSharingLevel())
                 .title(request.getTitle())
                 .requestMessage(request.getRequestMessage())
+                .urgency(request.getUrgency() != null ? request.getUrgency() : UrgencyLevel.MEDIUM)
+                .targetDepartment(request.getSharingLevel() == SharingLevel.DEPARTMENT ? request.getDepartment() : null)
                 .status(SharedScanStatus.PENDING_REVIEW)
                 .build();
 
@@ -100,10 +117,11 @@ public class CollaborationService {
             }
 
             for (String colleagueId : request.getColleagueIds()) {
-                User colleague = userRepository.findById(colleagueId)
+                User colleague = userRepository.findByIdAndOrganizationId(colleagueId, owner.getOrganizationId())
                         .orElseThrow(() -> new ResourceNotFoundException("Colleague not found: " + colleagueId));
 
                 SharedScanAccess access = SharedScanAccess.builder()
+                        .organization(owner.getOrganization())
                         .sharedScan(sharedScan)
                         .user(colleague)
                         .build();
@@ -111,7 +129,7 @@ public class CollaborationService {
                 recipients.add(colleague);
             }
         }
-        // For EVERYONE sharing, no access records needed - all users can access
+        // For org-wide sharing, no access records needed - all org users can access
 
         // Send notifications to recipients (only for SPECIFIC_COLLEAGUES)
         for (User recipient : recipients) {
@@ -130,7 +148,7 @@ public class CollaborationService {
         // Audit log
         String shareType = report != null ? "report " + report.getId() : "image " + imageName;
         auditService.logAction(owner, "scan_shared",
-                String.format("Shared %s with level %s", shareType, request.getSharingLevel()));
+                String.format("Shared scan %s with level %s [sharedScanId=%s]", shareType, request.getSharingLevel(), sharedScan.getId()));
 
         log.info("User {} shared {} with level {}, {} specific recipients",
                 owner.getEmail(), shareType, request.getSharingLevel(), recipients.size());
@@ -156,13 +174,30 @@ public class CollaborationService {
         List<SharedScanResponse> allSharedScans = new ArrayList<>();
 
         // Get directly shared (SPECIFIC_COLLEAGUES)
-        Page<SharedScan> directlyShared = sharedScanRepository.findSharedWithUser(user.getId(), pageable);
+        Page<SharedScan> directlyShared = sharedScanRepository.findSharedWithUser(
+                user.getId(),
+                user.getOrganizationId(),
+                pageable);
         allSharedScans.addAll(directlyShared.map(this::mapToResponse).getContent());
 
         // Get EVERYONE shares (excluding own shares)
-        Page<SharedScan> everyoneShared = sharedScanRepository.findByEveryoneSharing(
-                SharingLevel.EVERYONE, user.getId(), pageable);
+        Page<SharedScan> everyoneShared = sharedScanRepository.findByOrganizationWideSharing(
+                EnumSet.of(SharingLevel.EVERYONE, SharingLevel.ORGANIZATION_WIDE),
+                user.getOrganizationId(),
+                user.getId(),
+                pageable);
         allSharedScans.addAll(everyoneShared.map(this::mapToResponse).getContent());
+
+        // Get DEPARTMENT shares
+        if (user.getDepartment() != null && !user.getDepartment().isEmpty()) {
+            Page<SharedScan> departmentShared = sharedScanRepository.findByDepartmentSharing(
+                    SharingLevel.DEPARTMENT,
+                    user.getDepartment(),
+                    user.getOrganizationId(),
+                    user.getId(),
+                    pageable);
+            allSharedScans.addAll(departmentShared.map(this::mapToResponse).getContent());
+        }
 
         // Remove duplicates and sort by created date
         List<SharedScanResponse> uniqueScans = allSharedScans.stream()
@@ -178,16 +213,16 @@ public class CollaborationService {
      */
     @Transactional(readOnly = true)
     public Page<SharedScanResponse> getMySharedScans(User owner, Pageable pageable) {
-        return sharedScanRepository.findByOwnerId(owner.getId(), pageable)
+        return sharedScanRepository.findByOwnerIdAndOrganizationId(owner.getId(), owner.getOrganizationId(), pageable)
                 .map(this::mapToResponse);
     }
 
     /**
      * Get shared scan details
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public SharedScanResponse getSharedScan(String sharedScanId, User user) {
-        SharedScan sharedScan = sharedScanRepository.findByIdWithDetails(sharedScanId)
+        SharedScan sharedScan = sharedScanRepository.findByIdWithDetails(sharedScanId, user.getOrganizationId())
                 .orElseThrow(() -> new ResourceNotFoundException("Shared scan not found"));
 
         // Check access
@@ -197,7 +232,10 @@ public class CollaborationService {
 
         // Mark as viewed if first time (only for SPECIFIC_COLLEAGUES)
         if (sharedScan.getSharingLevel() == SharingLevel.SPECIFIC_COLLEAGUES) {
-            accessRepository.findBySharedScanIdAndUserId(sharedScanId, user.getId())
+            accessRepository.findBySharedScanIdAndUserIdAndOrganizationId(
+                            sharedScanId,
+                            user.getId(),
+                            user.getOrganizationId())
                     .ifPresent(access -> {
                         if (access.getViewedAt() == null) {
                             access.setViewedAt(LocalDateTime.now());
@@ -212,6 +250,9 @@ public class CollaborationService {
             sharedScanRepository.save(sharedScan);
         }
 
+        auditService.logAction(user, "shared_scan_accessed",
+                String.format("Accessed shared scan [sharedScanId=%s]", sharedScanId));
+
         return mapToResponse(sharedScan);
     }
 
@@ -222,7 +263,7 @@ public class CollaborationService {
      */
     @Transactional
     public ScanCommentResponse addComment(String sharedScanId, AddCommentRequest request, User author) {
-        SharedScan sharedScan = sharedScanRepository.findById(sharedScanId)
+        SharedScan sharedScan = sharedScanRepository.findByIdWithDetails(sharedScanId, author.getOrganizationId())
                 .orElseThrow(() -> new ResourceNotFoundException("Shared scan not found"));
 
         // Check access
@@ -233,16 +274,18 @@ public class CollaborationService {
         // Handle parent comment for replies
         ScanComment parent = null;
         if (request.getParentId() != null && !request.getParentId().isEmpty()) {
-            parent = commentRepository.findById(request.getParentId())
+            parent = commentRepository.findByIdAndOrganizationId(request.getParentId(), author.getOrganizationId())
                     .orElseThrow(() -> new ResourceNotFoundException("Parent comment not found"));
         }
 
         ScanComment comment = ScanComment.builder()
+                .organization(author.getOrganization())
                 .sharedScan(sharedScan)
                 .author(author)
                 .content(request.getContent())
                 .annotationData(request.getAnnotationData())
                 .parent(parent)
+                .isSuggestedImpression(request.getIsSuggestedImpression() != null ? request.getIsSuggestedImpression() : false)
                 .build();
 
         comment = commentRepository.save(comment);
@@ -281,7 +324,7 @@ public class CollaborationService {
 
         // Audit log
         auditService.logAction(author, "comment_added",
-                String.format("Added comment on shared scan %s", sharedScanId));
+                String.format("Added comment on shared scan [sharedScanId=%s]", sharedScanId));
 
         log.info("User {} added comment on shared scan {}", author.getEmail(), sharedScanId);
 
@@ -293,14 +336,14 @@ public class CollaborationService {
      */
     @Transactional(readOnly = true)
     public Page<ScanCommentResponse> getComments(String sharedScanId, User user, Pageable pageable) {
-        SharedScan sharedScan = sharedScanRepository.findById(sharedScanId)
+        SharedScan sharedScan = sharedScanRepository.findByIdWithDetails(sharedScanId, user.getOrganizationId())
                 .orElseThrow(() -> new ResourceNotFoundException("Shared scan not found"));
 
         if (!canAccessSharedScan(sharedScan, user)) {
             throw new AccessDeniedException("Not authorized to view comments");
         }
 
-        return commentRepository.findTopLevelComments(sharedScanId, pageable)
+        return commentRepository.findTopLevelComments(sharedScanId, user.getOrganizationId(), pageable)
                 .map(this::mapToCommentResponse);
     }
 
@@ -311,7 +354,7 @@ public class CollaborationService {
      */
     @Transactional
     public SharedScanResponse resolveScan(String sharedScanId, ResolveScanRequest request, User owner) {
-        SharedScan sharedScan = sharedScanRepository.findById(sharedScanId)
+        SharedScan sharedScan = sharedScanRepository.findByIdWithDetails(sharedScanId, owner.getOrganizationId())
                 .orElseThrow(() -> new ResourceNotFoundException("Shared scan not found"));
 
         if (!sharedScan.getOwner().getId().equals(owner.getId())) {
@@ -339,7 +382,7 @@ public class CollaborationService {
         }
 
         auditService.logAction(owner, "scan_resolved",
-                String.format("Resolved shared scan %s", sharedScanId));
+                String.format("Resolved shared scan [sharedScanId=%s]", sharedScanId));
 
         log.info("User {} resolved shared scan {}", owner.getEmail(), sharedScanId);
 
@@ -356,20 +399,53 @@ public class CollaborationService {
 
         switch (sharedScan.getSharingLevel()) {
             case SPECIFIC_COLLEAGUES:
-                return accessRepository.existsBySharedScanIdAndUserId(sharedScan.getId(), user.getId());
+                return accessRepository.existsBySharedScanIdAndUserIdAndOrganizationId(
+                        sharedScan.getId(),
+                        user.getId(),
+                        user.getOrganizationId());
             case EVERYONE:
-                // All authenticated users can access EVERYONE shares
-                return true;
+            case ORGANIZATION_WIDE:
+                return sharedScan.getOrganization().getId().equals(user.getOrganizationId());
+            case DEPARTMENT:
+                return user.getDepartment() != null && user.getDepartment().equals(sharedScan.getTargetDepartment()) &&
+                        sharedScan.getOrganization().getId().equals(user.getOrganizationId());
             default:
                 return false;
         }
+    }
+
+    @Transactional(readOnly = true)
+    public Page<AuditLogResponse> getAuditTrail(String sharedScanId, User user, Pageable pageable) {
+        SharedScan sharedScan = sharedScanRepository.findByIdWithDetails(sharedScanId, user.getOrganizationId())
+                .orElseThrow(() -> new ResourceNotFoundException("Shared scan not found"));
+        if (!canAccessSharedScan(sharedScan, user)) {
+            throw new AccessDeniedException("Not authorized to view audit trail");
+        }
+
+        return auditLogRepository.findByOrganizationIdAndDetailsContainingOrderByCreatedAtDesc(
+                        user.getOrganizationId(),
+                        "[sharedScanId=" + sharedScanId + "]",
+                        pageable)
+                .map(log -> AuditLogResponse.builder()
+                        .id(log.getId())
+                        .userId(log.getUser() != null ? log.getUser().getId() : null)
+                        .userEmail(log.getUserEmail())
+                        .action(log.getAction())
+                        .details(log.getDetails())
+                        .ipAddress(log.getIpAddress())
+                        .userAgent(log.getUserAgent())
+                        .success(log.getSuccess())
+                        .errorMessage(log.getErrorMessage())
+                        .createdAt(log.getCreatedAt())
+                        .build());
     }
 
     private List<User> getCollaborators(SharedScan sharedScan) {
         List<User> collaborators = new ArrayList<>();
 
         // Get users who have commented
-        commentRepository.findBySharedScanId(sharedScan.getId(), Pageable.unpaged())
+        commentRepository.findBySharedScanIdAndOrganizationId(sharedScan.getId(), sharedScan.getOrganization().getId(),
+                Pageable.unpaged())
                 .forEach(c -> {
                     if (!c.getAuthor().getId().equals(sharedScan.getOwner().getId())) {
                         collaborators.add(c.getAuthor());
@@ -378,7 +454,7 @@ public class CollaborationService {
 
         // Get users with explicit access (for SPECIFIC_COLLEAGUES)
         if (sharedScan.getSharingLevel() == SharingLevel.SPECIFIC_COLLEAGUES) {
-            accessRepository.findBySharedScanId(sharedScan.getId())
+            accessRepository.findBySharedScanIdAndOrganizationId(sharedScan.getId(), sharedScan.getOrganization().getId())
                     .forEach(a -> collaborators.add(a.getUser()));
         }
 
@@ -397,8 +473,14 @@ public class CollaborationService {
                 .status(sharedScan.getStatus())
                 .title(sharedScan.getTitle())
                 .requestMessage(sharedScan.getRequestMessage())
-                .commentCount(commentRepository.countBySharedScanId(sharedScan.getId()))
-                .accessCount(accessRepository.findBySharedScanId(sharedScan.getId()).size())
+                .urgency(sharedScan.getUrgency())
+                .department(sharedScan.getTargetDepartment())
+                .commentCount(commentRepository.countBySharedScanIdAndOrganizationId(
+                        sharedScan.getId(),
+                        sharedScan.getOrganization().getId()))
+                .accessCount(accessRepository.findBySharedScanIdAndOrganizationId(
+                        sharedScan.getId(),
+                        sharedScan.getOrganization().getId()).size())
                 .createdAt(sharedScan.getCreatedAt())
                 .resolvedAt(sharedScan.getResolvedAt())
                 .resolutionNotes(sharedScan.getResolutionNotes())
@@ -438,6 +520,7 @@ public class CollaborationService {
                 .content(comment.getContent())
                 .annotationData(comment.getAnnotationData())
                 .edited(comment.getEdited())
+                .isSuggestedImpression(comment.getIsSuggestedImpression())
                 .parentId(comment.getParent() != null ? comment.getParent().getId() : null)
                 .replies(replies)
                 .replyCount(replies.size())

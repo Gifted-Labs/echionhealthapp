@@ -40,6 +40,10 @@ public class JwtService {
         return extractClaim(token, Claims::getSubject);
     }
 
+    public String extractOrganizationId(String token) {
+        return extractClaim(token, claims -> claims.get("organizationId", String.class));
+    }
+
     /**
      * Extract a specific claim from the token
      */
@@ -52,7 +56,7 @@ public class JwtService {
      * Generate access token for user
      */
     public String generateToken(UserDetails userDetails) {
-        return generateToken(new HashMap<>(), userDetails);
+        return generateToken(buildPrincipalClaims(userDetails), userDetails);
     }
 
     /**
@@ -66,7 +70,17 @@ public class JwtService {
      * Generate refresh token
      */
     public String generateRefreshToken(UserDetails userDetails) {
-        return buildToken(new HashMap<>(), userDetails, refreshExpiration);
+        return buildToken(buildPrincipalClaims(userDetails), userDetails, refreshExpiration);
+    }
+
+    private Map<String, Object> buildPrincipalClaims(UserDetails userDetails) {
+        Map<String, Object> claims = new HashMap<>();
+        if (userDetails instanceof com.giftedlabs.echoinhealthbackend.security.AuthenticatedUser principal) {
+            claims.put("userId", principal.getUserId());
+            claims.put("organizationId", principal.getOrganizationId());
+            claims.put("role", principal.getRole().name());
+        }
+        return claims;
     }
 
     /**
@@ -90,8 +104,11 @@ public class JwtService {
      * Validate token against user details
      */
     public boolean isTokenValid(String token, UserDetails userDetails) {
+        final Claims claims = extractAllClaims(token);
         final String username = extractUsername(token);
-        return (username.equals(userDetails.getUsername())) && !isTokenExpired(token);
+        return username.equals(userDetails.getUsername())
+                && issuer.equals(claims.getIssuer())
+                && !claims.getExpiration().before(new Date());
     }
 
     /**

@@ -1,6 +1,8 @@
 spring:
   application:
     name: echoin-health-backend
+  config:
+    import: optional:file:.env[.properties]
   
   datasource:
     url: ${DB_URL}
@@ -16,14 +18,19 @@ spring:
   
   jpa:
     hibernate:
-      ddl-auto: update
-    show-sql: ${JPA_SHOW_SQL:true}
+      ddl-auto: none
+    show-sql: ${JPA_SHOW_SQL:false}
     properties:
       hibernate:
         format_sql: ${JPA_FORMAT_SQL:true}
         dialect: org.hibernate.dialect.PostgreSQLDialect
         jdbc:
           time_zone: UTC
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    locations: classpath:db/migration
   
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
@@ -35,12 +42,21 @@ server:
     include-binding-errors: always
   servlet:
     context-path: /api
+    # NOTE: no server-side HTTP session exists (Spring Security runs STATELESS), so
+    # server.servlet.session.timeout would have no effect. Session idle timeout is enforced
+    # on the refresh token via jwt.idle-timeout-minutes.
 
 # JWT Configuration
 jwt:
-  secret: ${JWT_SECRET:zA9FQW6nT7Jm8L3CkD5bX2p4R0YHUsN1eMZBqfGvVhEoK_iwSaPtdOcrxIyljA7}
-  expiration: ${JWT_EXPIRATION:3600000}  # 1 hour in milliseconds
+  secret: ${JWT_SECRET:}
+  # Access-token TTL. Kept below jwt.idle-timeout-minutes so an active client always refreshes
+  # inside the idle window and is never logged out mid-session.
+  expiration: ${JWT_EXPIRATION:600000}  # 10 minutes in milliseconds
+  # Absolute session ceiling: even a continuously active session ends here.
   refresh-expiration: ${JWT_REFRESH_EXPIRATION:86400000}  # 24 hours in milliseconds
+  # UR-089 sliding idle window. A session that goes this long without refreshing is revoked
+  # server-side and cannot be renewed.
+  idle-timeout-minutes: ${JWT_IDLE_TIMEOUT_MINUTES:15}
   issuer: ${JWT_ISSUER:echion-health}
 
 # Email Configuration
@@ -57,16 +73,24 @@ app:
     expiration-hours: ${TOKEN_VERIFICATION_HOURS:24}
   password-reset-token:
     expiration-hours: ${TOKEN_PASSWORD_RESET_HOURS:1}
+  auth:
+    auto-verify-registration: ${AUTH_AUTO_VERIFY_REGISTRATION:false}
+    max-failed-attempts: ${AUTH_MAX_FAILED_ATTEMPTS:5}
+    lock-minutes: ${AUTH_LOCK_MINUTES:15}
   admin:
     email: ${ADMIN_EMAIL:superadmin@echoinhealth.com}
-    password: ${ADMIN_PASSWORD:SuperAdmin123!}
+    password: ${ADMIN_PASSWORD:}
+    bootstrap:
+      organization-name: ${ADMIN_ORGANIZATION_NAME:Echion Platform}
+      hospital-name: ${ADMIN_HOSPITAL_NAME:Echion Health HQ}
+      reset-mfa-on-startup: ${ADMIN_RESET_MFA_ON_STARTUP:true}
 
 # Logging
 logging:
   level:
-    com.giftedlabs.echoinhealthbackend: DEBUG
-    org.springframework.security: DEBUG
-    org.hibernate.SQL: DEBUG
+    com.giftedlabs.echoinhealthbackend: INFO
+    org.springframework.security: INFO
+    org.hibernate.SQL: WARN
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
 
@@ -76,7 +100,6 @@ springdoc:
     path: /api-docs
   swagger-ui:
     path: /swagger-ui.html
-    enabled: true
 
 # File Storage Configuration
 # File Storage Configuration
@@ -101,6 +124,54 @@ spring.servlet.multipart:
   max-file-size: 50MB
   max-request-size: 50MB
 
+# Analytics
+analytics:
+  # Assumption behind the "estimated hours saved" figure. It is returned alongside the estimate
+  # it produces so the dashboard can label it as an estimate rather than a measurement.
+  estimated-minutes-saved-per-ai-report: ${ANALYTICS_MINUTES_SAVED_PER_AI_REPORT:25}
+
+# Billing guardrails: ceilings on add-on grants so an operator mistake cannot hand out
+# effectively unbounded quota.
+billing:
+  max-addon-storage-mb: ${BILLING_MAX_ADDON_STORAGE_MB:102400}
+  max-addon-ai-credits: ${BILLING_MAX_ADDON_AI_CREDITS:100000}
+
 # Encryption Configuration (AES-256)
 encryption:
-  key: ${ENCRYPTION_KEY:EchionHealthAES256SecretKey12345}
+  key: ${ENCRYPTION_KEY:}
+
+# AI provider routing.
+#
+# IMPORTANT: model IDs and per-million prices below are deployment configuration, not code.
+# Verify both against the provider's current model catalogue and price list before release,
+# and re-verify whenever you change a model. A wrong model ID is an immediate HTTP 400/404
+# with no graceful degradation. Use POST /api/admin/ai/verify to confirm live wiring.
+ai:
+  default-provider: ${AI_DEFAULT_PROVIDER:GEMINI}
+  fallback-provider: ${AI_FALLBACK_PROVIDER:OPENAI}
+  allow-fallback: ${AI_ALLOW_FALLBACK:true}
+  # Log full AI request/response bodies on success. Failure responses are ALWAYS logged in full
+  # regardless of this flag. Leave this off outside deliberate debugging: request bodies contain
+  # the clinical notes under report, so enabling it writes PHI into application logs.
+  log-payloads: ${AI_LOG_PAYLOADS:false}
+  openai:
+    api-key: ${OPENAI_API_KEY:}
+    # Responses API. The model is a body field for OpenAI.
+    endpoint: ${OPENAI_API_ENDPOINT:https://api.openai.com/v1/responses}
+    report-model: ${OPENAI_REPORT_MODEL:gpt-4.1-mini}
+    impression-model: ${OPENAI_IMPRESSION_MODEL:gpt-4.1-mini}
+    timeout-seconds: ${OPENAI_TIMEOUT_SECONDS:12}
+    max-attempts: ${OPENAI_MAX_ATTEMPTS:2}
+    input-cost-per-million: ${OPENAI_INPUT_COST_PER_MILLION:0.40}
+    output-cost-per-million: ${OPENAI_OUTPUT_COST_PER_MILLION:1.60}
+  gemini:
+    api-key: ${GEMINI_API_KEY:}
+    # API *base*. The provider appends /models/{model}:generateContent — Gemini takes the
+    # model as a path segment, so this must stay a base URL and not a full endpoint.
+    endpoint: ${GEMINI_API_ENDPOINT:https://generativelanguage.googleapis.com/v1beta}
+    report-model: ${GEMINI_REPORT_MODEL:gemini-3.1-flash-lite}
+    impression-model: ${GEMINI_IMPRESSION_MODEL:gemini-3.1-flash-lite}
+    timeout-seconds: ${GEMINI_TIMEOUT_SECONDS:12}
+    max-attempts: ${GEMINI_MAX_ATTEMPTS:2}
+    input-cost-per-million: ${GEMINI_INPUT_COST_PER_MILLION:0.30}
+    output-cost-per-million: ${GEMINI_OUTPUT_COST_PER_MILLION:2.50}

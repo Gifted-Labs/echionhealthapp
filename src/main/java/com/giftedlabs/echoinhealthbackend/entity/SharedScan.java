@@ -20,6 +20,7 @@ import java.util.List;
  */
 @Entity
 @Table(name = "shared_scans", indexes = {
+        @Index(name = "idx_shared_scans_org_owner", columnList = "organization_id,owner_id"),
         @Index(name = "idx_shared_scans_owner", columnList = "owner_id"),
         @Index(name = "idx_shared_scans_report", columnList = "report_id"),
         @Index(name = "idx_shared_scans_status", columnList = "status"),
@@ -34,6 +35,10 @@ public class SharedScan {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "organization_id", nullable = false)
+    private Organization organization;
 
     /**
      * The original report being shared (optional - can share image instead)
@@ -54,6 +59,9 @@ public class SharedScan {
      */
     @Column(name = "image_name", length = 255)
     private String imageName;
+
+    @Column(name = "image_size")
+    private Long imageSize;
 
     /**
      * Storage type for the image (LOCAL or R2)
@@ -95,6 +103,20 @@ public class SharedScan {
      */
     @Column(columnDefinition = "TEXT")
     private String requestMessage;
+
+    /**
+     * Urgency level for the collaboration request (UR-060)
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "urgency", length = 20)
+    @Builder.Default
+    private UrgencyLevel urgency = UrgencyLevel.MEDIUM;
+
+    /**
+     * Target department for DEPARTMENT sharing level (UR-060)
+     */
+    @Column(name = "target_department", length = 100)
+    private String targetDepartment;
 
     /**
      * Users who have access (for SPECIFIC_COLLEAGUES sharing level)

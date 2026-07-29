@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -32,13 +33,13 @@ public class AuthController {
      * Register a new user
      */
     @PostMapping("/register")
-    @Operation(summary = "Register a new user", description = "Register with basic information (firstName, lastName, email, password). Professional details can be added later.")
+    @Operation(summary = "Register a new organization", description = "Create an organization and auto-provision its first hospital administrator.")
     public ResponseEntity<ApiResponse<Void>> register(@Valid @RequestBody RegisterRequest request) {
         authService.register(request);
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(ApiResponse.success(
-                        "Registration successful! Please check your email to verify your account.",
+                        "Organization registered successfully. Check your email if verification is required before login.",
                         null));
     }
 
@@ -70,7 +71,7 @@ public class AuthController {
      * Login user
      */
     @PostMapping("/login")
-    @Operation(summary = "Login", description = "Authenticate user and receive JWT tokens")
+    @Operation(summary = "Login", description = "Authenticate using email, or using username plus organization name, and receive JWT tokens")
     public ResponseEntity<ApiResponse<AuthResponse>> login(@Valid @RequestBody LoginRequest request) {
         AuthResponse authResponse = authService.login(request);
         return ResponseEntity.ok(ApiResponse.success(authResponse));
@@ -105,6 +106,7 @@ public class AuthController {
      * Get current user profile
      */
     @GetMapping("/profile")
+    @PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SONOGRAPHER', 'RADIOLOGIST', 'PHYSICIAN', 'ADMIN', 'SUPER_ADMIN')")
     @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Get user profile", description = "Get current authenticated user's profile")
     public ResponseEntity<ApiResponse<UserProfileResponse>> getProfile(Authentication authentication) {
@@ -117,6 +119,7 @@ public class AuthController {
      * Complete user profile with professional details
      */
     @PostMapping("/complete-profile")
+    @PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SONOGRAPHER', 'RADIOLOGIST', 'PHYSICIAN', 'ADMIN', 'SUPER_ADMIN')")
     @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Complete profile", description = "Add professional details (phone, hospital, department, serviceNumber)")
     public ResponseEntity<ApiResponse<UserProfileResponse>> completeProfile(
@@ -133,6 +136,7 @@ public class AuthController {
      * Update user profile
      */
     @PatchMapping("/profile")
+    @PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SONOGRAPHER', 'RADIOLOGIST', 'PHYSICIAN', 'ADMIN', 'SUPER_ADMIN')")
     @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Update profile", description = "Update any profile fields (partial update)")
     public ResponseEntity<ApiResponse<UserProfileResponse>> updateProfile(
@@ -143,5 +147,47 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success(
                 "Profile updated successfully!",
                 profile));
+    }
+
+    @GetMapping("/mfa")
+    @PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SONOGRAPHER', 'RADIOLOGIST', 'PHYSICIAN', 'ADMIN', 'SUPER_ADMIN')")
+    @SecurityRequirement(name = "Bearer Authentication")
+    @Operation(summary = "Get MFA status", description = "Check whether TOTP MFA is enabled for the current user")
+    public ResponseEntity<ApiResponse<MfaStatusResponse>> getMfaStatus(Authentication authentication) {
+        return ResponseEntity.ok(ApiResponse.success(authService.getMfaStatus(authentication.getName())));
+    }
+
+    @PostMapping("/mfa/setup")
+    @PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SONOGRAPHER', 'RADIOLOGIST', 'PHYSICIAN', 'ADMIN', 'SUPER_ADMIN')")
+    @SecurityRequirement(name = "Bearer Authentication")
+    @Operation(summary = "Begin MFA setup", description = "Generate a TOTP secret and otpauth URL for an authenticator app")
+    public ResponseEntity<ApiResponse<MfaSetupResponse>> beginMfaSetup(Authentication authentication) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "MFA setup initialized",
+                authService.beginMfaSetup(authentication.getName())));
+    }
+
+    @PostMapping("/mfa/enable")
+    @PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SONOGRAPHER', 'RADIOLOGIST', 'PHYSICIAN', 'ADMIN', 'SUPER_ADMIN')")
+    @SecurityRequirement(name = "Bearer Authentication")
+    @Operation(summary = "Enable MFA", description = "Verify a TOTP code and enable MFA for the current user")
+    public ResponseEntity<ApiResponse<MfaStatusResponse>> enableMfa(
+            Authentication authentication,
+            @Valid @RequestBody MfaVerificationRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "MFA enabled successfully",
+                authService.enableMfa(authentication.getName(), request)));
+    }
+
+    @PostMapping("/mfa/disable")
+    @PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SONOGRAPHER', 'RADIOLOGIST', 'PHYSICIAN', 'ADMIN', 'SUPER_ADMIN')")
+    @SecurityRequirement(name = "Bearer Authentication")
+    @Operation(summary = "Disable MFA", description = "Verify a TOTP code and disable MFA for the current user")
+    public ResponseEntity<ApiResponse<MfaStatusResponse>> disableMfa(
+            Authentication authentication,
+            @Valid @RequestBody MfaVerificationRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "MFA disabled successfully",
+                authService.disableMfa(authentication.getName(), request)));
     }
 }

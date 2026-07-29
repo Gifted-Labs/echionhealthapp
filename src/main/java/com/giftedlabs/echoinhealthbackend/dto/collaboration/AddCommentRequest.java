@@ -28,4 +28,9 @@ public class AddCommentRequest {
      * Parent comment ID for replies (null for top-level comments)
      */
     private String parentId;
+
+    /**
+     * Whether this comment contains a suggested impression (UR-061)
+     */
+    private Boolean isSuggestedImpression;
 }

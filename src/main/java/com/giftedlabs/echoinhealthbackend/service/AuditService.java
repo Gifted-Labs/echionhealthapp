@@ -24,10 +24,10 @@ public class AuditService {
     /**
      * Log a successful action
      */
-    @Async
     public void logAction(User user, String action, String details) {
         try {
             AuditLog auditLog = AuditLog.builder()
+                    .organization(user.getOrganization())
                     .user(user)
                     .userEmail(user.getEmail())
                     .action(action)
@@ -38,7 +38,7 @@ public class AuditService {
                     .build();
 
             auditLogRepository.save(auditLog);
-            log.info("Audit log created: {} - {} - {}", user.getEmail(), action, details);
+            log.info("Audit log created: {} - {}", user.getEmail(), action);
         } catch (Exception e) {
             log.error("Failed to create audit log", e);
         }
@@ -47,7 +47,6 @@ public class AuditService {
     /**
      * Log a failed action
      */
-    @Async
     public void logFailedAction(String userEmail, String action, String errorMessage) {
         try {
             AuditLog auditLog = AuditLog.builder()
@@ -69,7 +68,6 @@ public class AuditService {
     /**
      * Log action without user (e.g., registration attempt)
      */
-    @Async
     public void logAction(String userEmail, String action, String details, boolean success) {
         try {
             AuditLog auditLog = AuditLog.builder()

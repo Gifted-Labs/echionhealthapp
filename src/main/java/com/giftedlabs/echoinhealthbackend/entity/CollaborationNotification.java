@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "collaboration_notifications", indexes = {
+        @Index(name = "idx_notif_org_recipient", columnList = "organization_id,recipient_id"),
         @Index(name = "idx_notif_recipient", columnList = "recipient_id"),
         @Index(name = "idx_notif_read", columnList = "is_read"),
         @Index(name = "idx_notif_created", columnList = "created_at"),
@@ -29,6 +30,10 @@ public class CollaborationNotification {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "organization_id", nullable = false)
+    private Organization organization;
 
     /**
      * User who receives the notification

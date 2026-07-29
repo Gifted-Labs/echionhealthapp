@@ -22,4 +22,6 @@ public class AuthResponse {
 
     private Long expiresIn; // Access token expiration in seconds
     private UserProfileResponse user;
+    @Builder.Default
+    private Boolean mfaRequired = false;
 }

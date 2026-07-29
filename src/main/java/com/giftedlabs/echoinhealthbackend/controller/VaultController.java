@@ -6,7 +6,10 @@ import com.giftedlabs.echoinhealthbackend.service.FileStorageService;
 import com.giftedlabs.echoinhealthbackend.service.ReportDocxService;
 import com.giftedlabs.echoinhealthbackend.service.ReportPdfService;
 import com.giftedlabs.echoinhealthbackend.service.ReportService;
+import com.giftedlabs.echoinhealthbackend.service.ReportHl7Service;
 import com.giftedlabs.echoinhealthbackend.entity.Report;
+import com.giftedlabs.echoinhealthbackend.security.AuthenticatedUser;
+import com.giftedlabs.echoinhealthbackend.security.CurrentUserService;
 import com.giftedlabs.echoinhealthbackend.repository.ReportRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -19,8 +22,8 @@ import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -31,14 +34,16 @@ import java.util.List;
 @RequestMapping("/vault")
 @RequiredArgsConstructor
 @Tag(name = "Vault", description = "Report vault management APIs")
+@PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SONOGRAPHER', 'RADIOLOGIST', 'PHYSICIAN', 'ADMIN', 'SUPER_ADMIN')")
 public class VaultController {
 
         private final ReportService reportService;
         private final FileStorageService fileStorageService;
         private final ReportPdfService reportPdfService;
         private final ReportDocxService reportDocxService;
+        private final ReportHl7Service reportHl7Service;
         private final ReportRepository reportRepository;
-        private final com.giftedlabs.echoinhealthbackend.repository.UserRepository userRepository;
+        private final CurrentUserService currentUserService;
 
         // ========== Upload Operations ==========
 
@@ -113,6 +118,23 @@ public class VaultController {
                                 .build());
         }
 
+        @PostMapping("/reports/{id}/autosave")
+        @Operation(summary = "Autosave report draft", description = "Persist in-progress draft content without creating a version")
+        public ResponseEntity<ApiResponse<ReportResponse>> autoSaveReport(
+                        @PathVariable String id,
+                        @RequestBody AutoSaveReportRequest request,
+                        Authentication authentication) {
+
+                String userId = getUserId(authentication);
+                ReportResponse response = reportService.autoSaveReport(id, request, userId);
+
+                return ResponseEntity.ok(ApiResponse.<ReportResponse>builder()
+                                .success(true)
+                                .message("Report autosaved successfully")
+                                .data(response)
+                                .build());
+        }
+
         @DeleteMapping("/reports/{id}")
         @Operation(summary = "Delete report", description = "Delete a report from the vault")
         public ResponseEntity<ApiResponse<Void>> deleteReport(
@@ -175,6 +197,19 @@ public class VaultController {
                                 .build());
         }
 
+        @PostMapping("/reports/helpers")
+        @Operation(summary = "Report helper tools", description = "Get impression suggestion, differentials, wording guidance and references from findings")
+        public ResponseEntity<ApiResponse<HelperToolsResponse>> getHelperTools(
+                        @Valid @RequestBody HelperToolsRequest request) {
+
+                HelperToolsResponse response = reportService.getHelperTools(request);
+
+                return ResponseEntity.ok(ApiResponse.<HelperToolsResponse>builder()
+                                .success(true)
+                                .data(response)
+                                .build());
+        }
+
         // ========== Version History (UR-031) ==========
 
         @GetMapping("/reports/{id}/versions")
@@ -226,6 +261,43 @@ public class VaultController {
                                 .build());
         }
 
+        @PostMapping("/reports/{id}/finalize")
+        @Operation(summary = "Finalize report", description = "Apply a selected signature and finalize a report")
+        public ResponseEntity<ApiResponse<ReportResponse>> finalizeReport(
+                        @PathVariable String id,
+                        @Valid @RequestBody FinalizeReportRequest request,
+                        Authentication authentication) {
+
+                String userId = getUserId(authentication);
+                ReportResponse response = reportService.finalizeReport(id, request, userId);
+
+                return ResponseEntity.ok(ApiResponse.<ReportResponse>builder()
+                                .success(true)
+                                .message("Report finalized successfully")
+                                .data(response)
+                                .build());
+        }
+
+        /**
+         * Pre-finalization preview (UR-040)
+         */
+        @PostMapping("/reports/{id}/preview")
+        @Operation(summary = "Preview finalized report", description = "Generate a preview of the finalized report without committing")
+        public ResponseEntity<ApiResponse<PreviewReportResponse>> previewReport(
+                        @PathVariable String id,
+                        @Valid @RequestBody PreviewReportRequest request,
+                        Authentication authentication) {
+
+                String userId = getUserId(authentication);
+                PreviewReportResponse response = reportService.previewReport(id, request, userId);
+
+                return ResponseEntity.ok(ApiResponse.<PreviewReportResponse>builder()
+                                .success(true)
+                                .message("Report preview generated")
+                                .data(response)
+                                .build());
+        }
+
         // ========== Export Operations ==========
 
         @GetMapping("/reports/{id}/download")
@@ -262,7 +334,8 @@ public class VaultController {
                         Authentication authentication) throws IOException {
 
                 String userId = getUserId(authentication);
-                Report report = reportRepository.findByIdAndUserId(id, userId)
+                String organizationId = currentUserService.requirePrincipal(authentication).getOrganizationId();
+                Report report = reportRepository.findByIdAndUserIdAndOrganizationId(id, userId, organizationId)
                                 .orElseThrow(() -> new com.giftedlabs.echoinhealthbackend.exception.ResourceNotFoundException(
                                                 "Report not found"));
 
@@ -287,7 +360,8 @@ public class VaultController {
                         Authentication authentication) throws IOException {
 
                 String userId = getUserId(authentication);
-                Report report = reportRepository.findByIdAndUserId(id, userId)
+                String organizationId = currentUserService.requirePrincipal(authentication).getOrganizationId();
+                Report report = reportRepository.findByIdAndUserIdAndOrganizationId(id, userId, organizationId)
                                 .orElseThrow(() -> new com.giftedlabs.echoinhealthbackend.exception.ResourceNotFoundException(
                                                 "Report not found"));
 
@@ -310,7 +384,8 @@ public class VaultController {
                         Authentication authentication) throws IOException {
 
                 String userId = getUserId(authentication);
-                Report report = reportRepository.findByIdAndUserId(id, userId)
+                String organizationId = currentUserService.requirePrincipal(authentication).getOrganizationId();
+                Report report = reportRepository.findByIdAndUserIdAndOrganizationId(id, userId, organizationId)
                                 .orElseThrow(() -> new com.giftedlabs.echoinhealthbackend.exception.ResourceNotFoundException(
                                                 "Report not found"));
 
@@ -324,18 +399,37 @@ public class VaultController {
                 return ResponseEntity.ok().headers(headers).body(pdfContent);
         }
 
+        /**
+         * Download report as HL7 v2.x ORU^R01 message (UR-044)
+         */
+        @GetMapping("/reports/{id}/download-hl7")
+        @Operation(summary = "Download HL7", description = "Generate and download report as HL7 v2.x ORU^R01 message")
+        public ResponseEntity<byte[]> downloadHl7(
+                        @PathVariable String id,
+                        Authentication authentication) {
+
+                String userId = getUserId(authentication);
+                String organizationId = currentUserService.requirePrincipal(authentication).getOrganizationId();
+                Report report = reportRepository.findByIdAndUserIdAndOrganizationId(id, userId, organizationId)
+                                .orElseThrow(() -> new com.giftedlabs.echoinhealthbackend.exception.ResourceNotFoundException(
+                                                "Report not found"));
+
+                String hl7Content = reportHl7Service.generateHl7(report);
+                byte[] hl7Bytes = hl7Content.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.TEXT_PLAIN);
+                headers.setContentDisposition(ContentDisposition.attachment()
+                                .filename("report_" + id + ".hl7").build());
+                headers.setContentLength(hl7Bytes.length);
+
+                return ResponseEntity.ok().headers(headers).body(hl7Bytes);
+        }
+
         // ========== Helper ==========
 
         private String getUserId(Authentication authentication) {
-                UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-                String email = userDetails.getUsername();
-                return findUserIdByEmail(email);
-        }
-
-        private String findUserIdByEmail(String email) {
-                return userRepository.findByEmail(email)
-                                .orElseThrow(() -> new com.giftedlabs.echoinhealthbackend.exception.ResourceNotFoundException(
-                                                "User not found"))
-                                .getId();
+                AuthenticatedUser user = currentUserService.requirePrincipal(authentication);
+                return user.getUserId();
         }
 }

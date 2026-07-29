@@ -19,34 +19,44 @@ public interface CollaborationNotificationRepository extends JpaRepository<Colla
     /**
      * Find notifications for a user, newest first
      */
-    Page<CollaborationNotification> findByRecipientIdOrderByCreatedAtDesc(String recipientId, Pageable pageable);
+    Page<CollaborationNotification> findByRecipientIdAndOrganizationIdOrderByCreatedAtDesc(
+            String recipientId,
+            String organizationId,
+            Pageable pageable);
 
     /**
      * Find unread notifications for a user
      */
-    List<CollaborationNotification> findByRecipientIdAndIsReadFalseOrderByCreatedAtDesc(String recipientId);
+    List<CollaborationNotification> findByRecipientIdAndOrganizationIdAndIsReadFalseOrderByCreatedAtDesc(
+            String recipientId,
+            String organizationId);
 
     /**
      * Count unread notifications
      */
-    long countByRecipientIdAndIsReadFalse(String recipientId);
+    long countByRecipientIdAndOrganizationIdAndIsReadFalse(String recipientId, String organizationId);
 
     /**
      * Mark all notifications as read for a user
      */
     @Modifying
-    @Query("UPDATE CollaborationNotification n SET n.isRead = true, n.readAt = :readAt WHERE n.recipient.id = :recipientId AND n.isRead = false")
-    int markAllAsRead(@Param("recipientId") String recipientId, @Param("readAt") LocalDateTime readAt);
+    @Query("UPDATE CollaborationNotification n SET n.isRead = true, n.readAt = :readAt WHERE n.recipient.id = :recipientId AND n.organization.id = :organizationId AND n.isRead = false")
+    int markAllAsRead(@Param("recipientId") String recipientId, @Param("organizationId") String organizationId,
+            @Param("readAt") LocalDateTime readAt);
 
     /**
      * Find notifications by type for a user
      */
-    List<CollaborationNotification> findByRecipientIdAndType(String recipientId, NotificationType type);
+    List<CollaborationNotification> findByRecipientIdAndOrganizationIdAndType(
+            String recipientId,
+            String organizationId,
+            NotificationType type);
 
     /**
      * Find recent notifications for SSE streaming (created after a timestamp)
      */
-    @Query("SELECT n FROM CollaborationNotification n WHERE n.recipient.id = :recipientId AND n.createdAt > :since ORDER BY n.createdAt ASC")
+    @Query("SELECT n FROM CollaborationNotification n WHERE n.recipient.id = :recipientId AND n.organization.id = :organizationId AND n.createdAt > :since ORDER BY n.createdAt ASC")
     List<CollaborationNotification> findNewNotifications(@Param("recipientId") String recipientId,
+            @Param("organizationId") String organizationId,
             @Param("since") LocalDateTime since);
 }

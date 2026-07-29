@@ -166,8 +166,8 @@ public class ReportDocumentParser {
         }
 
         ParsedReportData result = builder.build();
-        log.info("Parsed report - Patient: {}, ScanType: {}, ReportType: {}",
-                result.getPatientName(), result.getScanType(), result.getReportType());
+        log.info("Parsed report - ScanType: {}, ReportType: {}",
+                result.getScanType(), result.getReportType());
 
         return result;
     }
@@ -190,62 +190,76 @@ public class ReportDocumentParser {
 
         // Try partial matches for common scan types
         String lower = scanTypeStr.toLowerCase();
+        if (lower.contains("abdomen pelvis male"))
+            return ScanType.ABDOMEN_PELVIS_MALE;
+        if (lower.contains("abdomen pelvis female"))
+            return ScanType.ABDOMEN_PELVIS_FEMALE;
         if (lower.contains("abdomen"))
-            return ScanType.ABDOMEN;
+            return ScanType.ABDOMINAL;
+        if (lower.contains("pelvis male") || lower.contains("pelvic male"))
+            return ScanType.PELVIC_MALE;
+        if (lower.contains("pelvis female") || lower.contains("pelvic female"))
+            return ScanType.PELVIC_FEMALE;
         if (lower.contains("pelvis") || lower.contains("pelvic"))
-            return ScanType.PELVIS;
-        if (lower.contains("obstetric"))
-            return ScanType.OBSTETRIC;
+            return ScanType.TRANSABDOMINAL_PELVIC;
+        if (lower.contains("obstetric twins") || lower.contains("twins"))
+            return ScanType.OBSTETRIC_TWINS;
+        if (lower.contains("obstetric") || lower.contains("pregnan"))
+            return ScanType.OBSTETRIC_LATE;
+        if (lower.contains("anomaly"))
+            return ScanType.ANOMALY;
+        if (lower.contains("biophysical"))
+            return ScanType.BIOPHYSICAL_PROFILE;
+        if (lower.contains("transvag"))
+            return ScanType.TRANSVAGINAL;
         if (lower.contains("thyroid"))
             return ScanType.THYROID;
         if (lower.contains("breast"))
             return ScanType.BREAST;
         if (lower.contains("renal") || lower.contains("kidney"))
-            return ScanType.RENAL;
-        if (lower.contains("cardiac") || lower.contains("heart"))
-            return ScanType.CARDIAC;
-        if (lower.contains("vascular"))
-            return ScanType.VASCULAR;
-        if (lower.contains("knee")) {
-            if (lower.contains("lt") || lower.contains("left"))
-                return ScanType.LT_KNEE_JOINT;
-            if (lower.contains("rt") || lower.contains("right"))
-                return ScanType.RT_KNEE_JOINT;
-            return ScanType.KNEE_JOINTS;
-        }
-        if (lower.contains("elbow")) {
-            if (lower.contains("lt") || lower.contains("left"))
-                return ScanType.LT_ELBOW_JOINTS;
-            if (lower.contains("rt") || lower.contains("right"))
-                return ScanType.RT_ELBOW_JOINTS;
-            return ScanType.ELBOW_JOINTS;
-        }
-        if (lower.contains("shoulder")) {
-            if (lower.contains("both"))
-                return ScanType.BOTH_SHOULDER_JOINT;
-            if (lower.contains("lt") || lower.contains("left"))
-                return ScanType.LT_SHOULDER_JOINTS;
-            if (lower.contains("rt") || lower.contains("right"))
-                return ScanType.RT_SHOULDER_JOINT;
-            return ScanType.BOTH_SHOULDER_JOINT;
-        }
-        if (lower.contains("wrist")) {
-            if (lower.contains("both"))
-                return ScanType.BOTH_WRIST_JOINT;
-            if (lower.contains("lt") || lower.contains("left"))
-                return ScanType.LT_WRIST_JOINT;
-            if (lower.contains("rt") || lower.contains("right"))
-                return ScanType.RT_WRIST_JOINT;
-            return ScanType.BOTH_WRIST_JOINT;
-        }
+            return ScanType.ABDOMINAL;
+        if (lower.contains("cardiac") || lower.contains("heart") || lower.contains("echo"))
+            return ScanType.ECHO_ADULT;
+        if (lower.contains("arterial doppler both lower"))
+            return ScanType.ARTERIAL_DOPPLER_BOTH_LOWER;
+        if (lower.contains("arterial doppler left lower"))
+            return ScanType.ARTERIAL_DOPPLER_LEFT_LOWER;
+        if (lower.contains("arterial doppler right lower"))
+            return ScanType.ARTERIAL_DOPPLER_RIGHT_LOWER;
+        if (lower.contains("arterial doppler left upper"))
+            return ScanType.ARTERIAL_DOPPLER_LEFT_UPPER;
+        if (lower.contains("arterial doppler right upper"))
+            return ScanType.ARTERIAL_DOPPLER_RIGHT_UPPER;
+        if (lower.contains("venous doppler both lower"))
+            return ScanType.VENOUS_DOPPLER_BOTH_LOWER;
+        if (lower.contains("venous doppler left lower"))
+            return ScanType.VENOUS_DOPPLER_LEFT_LOWER;
+        if (lower.contains("venous doppler right lower"))
+            return ScanType.VENOUS_DOPPLER_RIGHT_LOWER;
+        if (lower.contains("venous doppler left upper"))
+            return ScanType.VENOUS_DOPPLER_LEFT_UPPER;
+        if (lower.contains("venous doppler right upper"))
+            return ScanType.VENOUS_DOPPLER_RIGHT_UPPER;
+        if (lower.contains("vascular") || lower.contains("doppler"))
+            return ScanType.VENOUS_DOPPLER_BOTH_LOWER;
         if (lower.contains("musculoskeletal"))
             return ScanType.MUSCULOSKELETAL;
         if (lower.contains("hepatobiliary") || lower.contains("liver") || lower.contains("gallbladder"))
-            return ScanType.HEPATOBILIARY;
+            return ScanType.ABDOMINAL;
         if (lower.contains("gynecological") || lower.contains("gynae"))
-            return ScanType.GYNECOLOGICAL;
+            return ScanType.TRANSABDOMINAL_PELVIC;
+        if (lower.contains("neck"))
+            return ScanType.NECK;
+        if (lower.contains("chest"))
+            return ScanType.CHEST;
+        if (lower.contains("scrot"))
+            return ScanType.SCROTAL;
+        if (lower.contains("penile"))
+            return ScanType.PENILE;
+        if (lower.contains("neonatal head") || lower.contains("cranial"))
+            return ScanType.NEONATAL_HEAD;
 
-        return ScanType.OTHER;
+        return ScanType.GENERAL;
     }
 
     private ReportType parseReportType(String reportTypeStr) {

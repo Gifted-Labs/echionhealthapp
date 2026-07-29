@@ -3,7 +3,6 @@ package com.giftedlabs.echoinhealthbackend.dto.vault;
 import com.giftedlabs.echoinhealthbackend.entity.Gender;
 import com.giftedlabs.echoinhealthbackend.entity.ReportType;
 import com.giftedlabs.echoinhealthbackend.entity.ScanType;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PastOrPresent;
 import jakarta.validation.constraints.Positive;
@@ -13,6 +12,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDate;
+import java.util.Map;
 
 /**
  * DTO for creating a new report from form data
@@ -45,16 +45,22 @@ public class CreateReportRequest {
     // Report Content
     private String clinicalHistory;
 
-    @NotBlank(message = "Findings are required")
     private String findings;
 
     private String impression;
 
     private String recommendation;
 
+    private Map<String, Object> structuredFindings;
+
+    private String[] recommendationOptions;
+
     // Metadata
     private String[] tags;
 
     // Template ID (for usage analytics tracking)
     private String templateId;
+
+    private Boolean isAiGenerated;
+    private Integer processingTimeSeconds;
 }

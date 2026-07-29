@@ -1,0 +1,2 @@
+ALTER TABLE IF EXISTS organizations
+    ADD COLUMN IF NOT EXISTS letterhead_url VARCHAR(1000);

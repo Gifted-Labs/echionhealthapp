@@ -1,8 +1,11 @@
 package com.giftedlabs.echoinhealthbackend.service;
 
 import com.giftedlabs.echoinhealthbackend.entity.Report;
+import com.giftedlabs.echoinhealthbackend.entity.Organization;
 import com.giftedlabs.echoinhealthbackend.exception.ResourceNotFoundException;
 import com.giftedlabs.echoinhealthbackend.repository.ReportRepository;
+import com.giftedlabs.echoinhealthbackend.repository.UserRepository;
+import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -16,6 +19,7 @@ import org.springframework.stereotype.Service;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.format.DateTimeFormatter;
+import java.util.Optional;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -28,17 +32,21 @@ import java.util.List;
 public class ReportPdfService {
 
     private final ReportRepository reportRepository;
+    private final UserRepository userRepository;
+    private final ReportSignatureResolver reportSignatureResolver;
+    private final LetterheadImageService letterheadImageService;
 
     private static final float MARGIN = 50;
     private static final float LINE_HEIGHT = 14;
     private static final float SECTION_SPACING = 20;
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd MMM yyyy");
+    private static final String DEFAULT_LETTERHEAD_LABEL = "Echion Health Default Letterhead";
 
     /**
      * Generate a PDF for a specific report
      */
     public byte[] generateReportPdf(String reportId, String userId) throws IOException {
-        Report report = reportRepository.findByIdAndUserId(reportId, userId)
+        Report report = reportRepository.findByIdAndUserIdAndOrganizationId(reportId, userId, currentOrganizationId(userId))
                 .orElseThrow(() -> new ResourceNotFoundException("Report not found"));
 
         return generatePdf(report);
@@ -63,6 +71,9 @@ public class ReportPdfService {
             float yPosition = pageHeight - MARGIN;
 
             PDPageContentStream contentStream = new PDPageContentStream(document, page);
+
+            yPosition = drawBrandingHeader(document, contentStream, report.getOrganization(), normalFont, headerFont, MARGIN, pageWidth, yPosition);
+            yPosition -= SECTION_SPACING;
 
             // Title - Report Type
             String title = "ULTRASOUND SCAN REPORT";
@@ -146,6 +157,8 @@ public class ReportPdfService {
                 yPosition -= SECTION_SPACING;
             }
 
+            yPosition = drawSignatureBlock(document, contentStream, report, normalFont, headerFont, pageWidth, yPosition);
+
             // Footer with report ID and generation date
             contentStream.beginText();
             contentStream.setFont(normalFont, 8);
@@ -186,6 +199,63 @@ public class ReportPdfService {
         return yPosition - LINE_HEIGHT;
     }
 
+    private float drawBrandingHeader(PDDocument document, PDPageContentStream contentStream,
+            Organization organization, PDType1Font normalFont,
+            PDType1Font headerFont, float margin, float pageWidth, float yPosition) throws IOException {
+        String hospitalName = organization != null && organization.getHospitalName() != null
+                ? organization.getHospitalName()
+                : "Echion Health";
+
+        // Draw the actual uploaded letterhead. Only when there isn't one (or it cannot be
+        // embedded) do we fall back to the default text banner.
+        Optional<LetterheadImageService.Letterhead> letterhead =
+                letterheadImageService.resolve(organization);
+        if (letterhead.isPresent()) {
+            yPosition = drawLetterheadImage(document, contentStream, letterhead.get(),
+                    margin, pageWidth, yPosition);
+        }
+
+        String label = letterhead.isPresent() ? null : DEFAULT_LETTERHEAD_LABEL;
+
+        yPosition = drawCenteredText(contentStream, hospitalName, headerFont, 18, pageWidth, yPosition);
+
+        if (organization != null && organization.getAddress() != null && !organization.getAddress().isBlank()) {
+            yPosition = drawCenteredText(contentStream, organization.getAddress(), normalFont, 10, pageWidth, yPosition);
+        }
+
+        String contactLine = buildContactLine(organization);
+        if (!contactLine.isBlank()) {
+            yPosition = drawCenteredText(contentStream, contactLine, normalFont, 10, pageWidth, yPosition);
+        }
+
+        if (label != null) {
+            yPosition = drawCenteredText(contentStream, label, normalFont, 9, pageWidth, yPosition);
+        }
+        return yPosition;
+    }
+
+    /**
+     * Scales the letterhead to the printable width, capped so a tall logo cannot push the
+     * report body off the first page.
+     */
+    private float drawLetterheadImage(PDDocument document, PDPageContentStream contentStream,
+            LetterheadImageService.Letterhead letterhead, float margin, float pageWidth,
+            float yPosition) throws IOException {
+        PDImageXObject image = PDImageXObject.createFromByteArray(
+                document, letterhead.data(), "letterhead." + letterhead.format());
+
+        float maxWidth = pageWidth - (2 * margin);
+        float maxHeight = 90f;
+        float scale = Math.min(maxWidth / image.getWidth(), maxHeight / image.getHeight());
+        float width = image.getWidth() * scale;
+        float height = image.getHeight() * scale;
+        float x = (pageWidth - width) / 2;
+        float y = yPosition - height;
+
+        contentStream.drawImage(image, x, y, width, height);
+        return y - LINE_HEIGHT;
+    }
+
     private float drawLabelValue(PDPageContentStream contentStream, PDType1Font font, String label,
             String value, float xPosition, float yPosition) throws IOException {
         contentStream.beginText();
@@ -221,6 +291,43 @@ public class ReportPdfService {
         }
 
         return yPosition;
+    }
+
+    private float drawSignatureBlock(PDDocument document, PDPageContentStream contentStream, Report report, PDType1Font normalFont,
+            PDType1Font headerFont, float pageWidth, float yPosition) throws IOException {
+        if ((report.getSignatoryName() == null || report.getSignatoryName().isBlank())
+                && report.getAppliedSignatureId() == null) {
+            return yPosition;
+        }
+
+        yPosition = drawSectionHeader(contentStream, "SIGNATURE", headerFont, MARGIN, yPosition);
+        yPosition -= LINE_HEIGHT;
+
+        ReportSignatureResolver.ResolvedSignature resolvedSignature = reportSignatureResolver.resolve(report).orElse(null);
+        if (resolvedSignature != null && resolvedSignature.getImageBytes() != null && resolvedSignature.getImageBytes().length > 0) {
+            PDImageXObject signatureImage = PDImageXObject.createFromByteArray(
+                    document,
+                    resolvedSignature.getImageBytes(),
+                    resolvedSignature.getImagePath());
+            float imageWidth = 140;
+            float imageHeight = 55;
+            float imageY = Math.max(yPosition - imageHeight, MARGIN + 60);
+            contentStream.drawImage(signatureImage, MARGIN, imageY, imageWidth, imageHeight);
+            yPosition = imageY - 10;
+        }
+
+        if (report.getSignatoryName() != null && !report.getSignatoryName().isBlank()) {
+            yPosition = drawLabelValue(contentStream, normalFont, "Signed By:", report.getSignatoryName(), MARGIN, yPosition);
+        }
+        if (report.getSignatoryDesignation() != null) {
+            yPosition = drawLabelValue(contentStream, normalFont, "Designation:",
+                    formatEnumName(report.getSignatoryDesignation().name()), MARGIN, yPosition);
+        }
+        if (resolvedSignature != null && resolvedSignature.getLabel() != null && !resolvedSignature.getLabel().isBlank()) {
+            yPosition = drawLabelValue(contentStream, normalFont, "Signature Label:", resolvedSignature.getLabel(), MARGIN, yPosition);
+        }
+
+        return yPosition - SECTION_SPACING;
     }
 
     private List<String> wrapText(String text, PDType1Font font, float fontSize, float maxWidth) throws IOException {
@@ -262,20 +369,46 @@ public class ReportPdfService {
         return enumName.replace("_", " ");
     }
 
+    private String buildContactLine(Organization organization) {
+        if (organization == null) {
+            return "";
+        }
+
+        StringBuilder builder = new StringBuilder();
+        appendContactPart(builder, organization.getPhone());
+        appendContactPart(builder, organization.getEmail());
+        appendContactPart(builder, organization.getWebsite());
+        return builder.toString();
+    }
+
+    private void appendContactPart(StringBuilder builder, String value) {
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        if (!builder.isEmpty()) {
+            builder.append(" | ");
+        }
+        builder.append(value);
+    }
+
     /**
      * Generate filename for the PDF
      */
     public String generateFilename(String reportId, String userId) {
-        Report report = reportRepository.findByIdAndUserId(reportId, userId)
+        Report report = reportRepository.findByIdAndUserIdAndOrganizationId(reportId, userId, currentOrganizationId(userId))
                 .orElseThrow(() -> new ResourceNotFoundException("Report not found"));
 
-        String patientName = report.getPatientName() != null ? report.getPatientName().replaceAll("[^a-zA-Z0-9]", "_")
-                : "Unknown";
         String scanType = report.getScanType() != null ? report.getScanType().name() : "SCAN";
         String date = report.getScanDate() != null
                 ? report.getScanDate().format(DateTimeFormatter.ofPattern("yyyyMMdd"))
                 : "";
 
-        return String.format("Report_%s_%s_%s.pdf", patientName, scanType, date);
+        return String.format("Report_%s_%s_%s.pdf", report.getId(), scanType, date);
+    }
+
+    private String currentOrganizationId(String userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"))
+                .getOrganizationId();
     }
 }

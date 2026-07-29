@@ -4,6 +4,7 @@ import com.giftedlabs.echoinhealthbackend.entity.Gender;
 import com.giftedlabs.echoinhealthbackend.entity.ReportType;
 import com.giftedlabs.echoinhealthbackend.entity.ScanType;
 import com.giftedlabs.echoinhealthbackend.entity.StorageType;
+import com.giftedlabs.echoinhealthbackend.entity.Designation;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -11,6 +12,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Map;
 
 /**
  * DTO for complete report response
@@ -40,6 +42,8 @@ public class ReportResponse {
     private String findings;
     private String impression;
     private String recommendation;
+    private Map<String, Object> structuredFindings;
+    private String[] recommendationOptions;
 
     // File Information
     private String originalFilename;
@@ -52,6 +56,12 @@ public class ReportResponse {
     // Metadata
     private String[] tags;
     private Boolean isFavorite;
+    private String status;
+    private String appliedSignatureId;
+    private String signatoryName;
+    private Designation signatoryDesignation;
+    private LocalDateTime finalizedAt;
+    private LocalDateTime lastAutoSaveAt;
 
     // Timestamps
     private LocalDateTime createdAt;

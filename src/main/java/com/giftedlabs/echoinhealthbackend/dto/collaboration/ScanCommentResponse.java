@@ -28,6 +28,7 @@ public class ScanCommentResponse {
     private String content;
     private String annotationData;
     private Boolean edited;
+    private Boolean isSuggestedImpression;
 
     // Threading
     private String parentId;

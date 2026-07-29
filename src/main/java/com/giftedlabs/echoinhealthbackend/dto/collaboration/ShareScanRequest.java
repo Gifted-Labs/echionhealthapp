@@ -1,6 +1,7 @@
 package com.giftedlabs.echoinhealthbackend.dto.collaboration;
 
 import com.giftedlabs.echoinhealthbackend.entity.SharingLevel;
+import com.giftedlabs.echoinhealthbackend.entity.UrgencyLevel;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -41,4 +42,14 @@ public class ShareScanRequest {
      * Message explaining what feedback is needed
      */
     private String requestMessage;
+
+    /**
+     * Urgency level for the request (UR-060)
+     */
+    private UrgencyLevel urgency;
+
+    /**
+     * Target department when sharingLevel is DEPARTMENT (UR-060)
+     */
+    private String department;
 }
