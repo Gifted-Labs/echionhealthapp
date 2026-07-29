@@ -1,0 +1,231 @@
+name: CI
+
+# Every gate below must pass before a pull request can merge, and before main deploys.
+# The deploy job at the bottom is what actually ships to Railway — see DEPLOYMENT note in
+# docs/CI_CD_PIPELINE.md about disabling Railway's own GitHub auto-deploy, otherwise Railway
+# will deploy straight from a push and bypass all of this.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push supersedes an in-flight run on the same ref, except on main where every
+# commit that could deploy gets its own verified run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  JAVA_VERSION: '21'   # matches the Dockerfile runtime and pom <java.version>
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------- build & test
+  build-and-test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+          cache: maven
+
+      - name: Compile
+        run: ./mvnw -B -ntp clean compile
+
+      # The suite includes Testcontainers integration tests that start real PostgreSQL:
+      # the migration chain, vault search (PostgreSQL array containment), and the AI credit
+      # concurrency test cannot run on H2. GitHub's ubuntu runners provide Docker.
+      - name: Run tests
+        run: ./mvnw -B -ntp verify
+
+      - name: Publish test report
+        uses: mikepenz/action-junit-report@v4
+        if: always()
+        with:
+          report_paths: target/surefire-reports/TEST-*.xml
+          check_name: Test results
+          fail_on_failure: true
+
+      - name: Upload surefire reports
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: surefire-reports
+          path: target/surefire-reports/
+          retention-days: 7
+
+      - name: Upload jar for container scan
+        uses: actions/upload-artifact@v4
+        with:
+          name: application-jar
+          path: target/*.jar
+          retention-days: 1
+
+  # ---------------------------------------------------------------- secret scanning
+  # This repo has committed a .env containing live credentials before. This gate exists
+  # specifically so that cannot happen again silently.
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # gitleaks needs history to scan the full diff range
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+
+  # ---------------------------------------------------------------- dependency CVEs
+  dependency-scan:
+    name: Dependency vulnerabilities
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+          cache: maven
+
+      # Resolve the real dependency tree first so Trivy scans what actually ships,
+      # rather than inferring it from pom.xml alone.
+      - name: Resolve dependencies
+        run: ./mvnw -B -ntp dependency:copy-dependencies -DoutputDirectory=target/deps
+
+      - name: Trivy dependency scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true    # do not block on CVEs with no available fix
+          exit-code: '1'
+          format: table
+
+  # ---------------------------------------------------------------- SAST
+  codeql:
+    name: CodeQL (Java)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+          cache: maven
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: java-kotlin
+          queries: security-extended
+
+      - name: Build for analysis
+        run: ./mvnw -B -ntp clean compile -DskipTests
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:java-kotlin
+
+  # ---------------------------------------------------------------- container image
+  container-scan:
+    name: Container image build & scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t echion-health:${{ github.sha }} .
+
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: image
+          image-ref: echion-health:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          format: table
+
+  # ---------------------------------------------------------------- the gate
+  # Single required status check. Point branch protection at this job rather than at each
+  # job individually, so adding a gate later does not require reconfiguring GitHub.
+  ci-gate:
+    name: CI gate
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [build-and-test, secret-scan, dependency-scan, codeql, container-scan]
+    steps:
+      - name: Verify every gate passed
+        run: |
+          echo "build-and-test:   ${{ needs.build-and-test.result }}"
+          echo "secret-scan:      ${{ needs.secret-scan.result }}"
+          echo "dependency-scan:  ${{ needs.dependency-scan.result }}"
+          echo "codeql:           ${{ needs.codeql.result }}"
+          echo "container-scan:   ${{ needs.container-scan.result }}"
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then
+            echo "::error::One or more CI gates failed. Merge and deploy are blocked."
+            exit 1
+          fi
+          echo "All CI gates passed."
+
+  # ---------------------------------------------------------------- deploy
+  # Only on main, only after every gate is green. `environment` lets you add a manual
+  # approval step in GitHub settings if you want a human in the loop before production.
+  deploy:
+    name: Deploy to Railway
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: ci-gate
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    environment:
+      name: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "::error::RAILWAY_TOKEN is not set. Add it under Settings > Secrets > Actions."
+            exit 1
+          fi
+          railway up --service "${{ vars.RAILWAY_SERVICE || 'echionhealthapp' }}" --detach
+
+      - name: Deployment summary
+        run: |
+          echo "### Deployed to Railway" >> $GITHUB_STEP_SUMMARY
+          echo "- commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Flyway will migrate on boot; watch startup logs for the migration result." >> $GITHUB_STEP_SUMMARY
+          echo "- Verify AI wiring after deploy: \`POST /api/admin/ai/verify\`" >> $GITHUB_STEP_SUMMARY

@@ -28,6 +28,7 @@
     </scm>
     <properties>
         <java.version>21</java.version>
+        <test.excludedGroups>performance</test.excludedGroups>
     </properties>
     <dependencies>
         <dependency>
@@ -192,6 +193,19 @@
 
     <build>
         <plugins>
+            <!-- Performance tests assert absolute latency, which is only meaningful on an
+                 unloaded machine. Running them alongside the rest of the suite makes them
+                 measure contention rather than the code: the same assertion that passes at
+                 13ms standalone was seen at 2126ms during a full `verify`. They are tagged
+                 and excluded here, and run in their own isolated CI job instead.
+                 Run locally with: ./mvnw verify -DexcludedGroups= -Dgroups=performance -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludedGroups>${test.excludedGroups}</excludedGroups>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
