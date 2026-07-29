@@ -18,6 +18,7 @@ import java.util.List;
  */
 @Entity
 @Table(name = "scan_comments", indexes = {
+        @Index(name = "idx_comments_org_scan", columnList = "organization_id,shared_scan_id"),
         @Index(name = "idx_comments_shared_scan", columnList = "shared_scan_id"),
         @Index(name = "idx_comments_author", columnList = "author_id"),
         @Index(name = "idx_comments_parent", columnList = "parent_id"),
@@ -32,6 +33,10 @@ public class ScanComment {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "organization_id", nullable = false)
+    private Organization organization;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "shared_scan_id", nullable = false)
@@ -77,6 +82,13 @@ public class ScanComment {
     @Column(nullable = false)
     @Builder.Default
     private Boolean edited = false;
+
+    /**
+     * Whether this comment is a suggested impression (UR-061)
+     */
+    @Column(name = "is_suggested_impression", nullable = false)
+    @Builder.Default
+    private Boolean isSuggestedImpression = false;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

@@ -3,6 +3,7 @@ package com.giftedlabs.echoinhealthbackend.dto.collaboration;
 import com.giftedlabs.echoinhealthbackend.entity.SharedScanStatus;
 import com.giftedlabs.echoinhealthbackend.entity.SharingLevel;
 import com.giftedlabs.echoinhealthbackend.entity.StorageType;
+import com.giftedlabs.echoinhealthbackend.entity.UrgencyLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -43,6 +44,8 @@ public class SharedScanResponse {
     private SharedScanStatus status;
     private String title;
     private String requestMessage;
+    private UrgencyLevel urgency;
+    private String department;
 
     // Statistics
     private long commentCount;

@@ -16,26 +16,29 @@ public interface ScanCommentRepository extends JpaRepository<ScanComment, String
     /**
      * Find all top-level comments for a shared scan (no parent)
      */
-    @Query("SELECT c FROM ScanComment c WHERE c.sharedScan.id = :sharedScanId AND c.parent IS NULL ORDER BY c.createdAt ASC")
-    Page<ScanComment> findTopLevelComments(@Param("sharedScanId") String sharedScanId, Pageable pageable);
+    @Query("SELECT c FROM ScanComment c WHERE c.sharedScan.id = :sharedScanId AND c.organization.id = :organizationId AND c.parent IS NULL ORDER BY c.createdAt ASC")
+    Page<ScanComment> findTopLevelComments(@Param("sharedScanId") String sharedScanId,
+            @Param("organizationId") String organizationId, Pageable pageable);
 
     /**
      * Find all comments for a shared scan
      */
-    Page<ScanComment> findBySharedScanId(String sharedScanId, Pageable pageable);
+    Page<ScanComment> findBySharedScanIdAndOrganizationId(String sharedScanId, String organizationId, Pageable pageable);
 
     /**
      * Find replies to a specific comment
      */
-    List<ScanComment> findByParentIdOrderByCreatedAtAsc(String parentId);
+    List<ScanComment> findByParentIdAndOrganizationIdOrderByCreatedAtAsc(String parentId, String organizationId);
+
+    java.util.Optional<ScanComment> findByIdAndOrganizationId(String id, String organizationId);
 
     /**
      * Count comments on a shared scan
      */
-    long countBySharedScanId(String sharedScanId);
+    long countBySharedScanIdAndOrganizationId(String sharedScanId, String organizationId);
 
     /**
      * Count comments by a specific author on a shared scan
      */
-    long countBySharedScanIdAndAuthorId(String sharedScanId, String authorId);
+    long countBySharedScanIdAndAuthorIdAndOrganizationId(String sharedScanId, String authorId, String organizationId);
 }

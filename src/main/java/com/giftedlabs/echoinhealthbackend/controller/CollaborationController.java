@@ -1,11 +1,12 @@
 package com.giftedlabs.echoinhealthbackend.controller;
 
+import com.giftedlabs.echoinhealthbackend.dto.admin.AuditLogResponse;
 import com.giftedlabs.echoinhealthbackend.dto.collaboration.*;
 import com.giftedlabs.echoinhealthbackend.dto.common.ApiResponse;
 import com.giftedlabs.echoinhealthbackend.entity.SharingLevel;
+import com.giftedlabs.echoinhealthbackend.entity.UrgencyLevel;
 import com.giftedlabs.echoinhealthbackend.entity.User;
-import com.giftedlabs.echoinhealthbackend.exception.ResourceNotFoundException;
-import com.giftedlabs.echoinhealthbackend.repository.UserRepository;
+import com.giftedlabs.echoinhealthbackend.security.CurrentUserService;
 import com.giftedlabs.echoinhealthbackend.service.CollaborationService;
 import com.giftedlabs.echoinhealthbackend.service.NotificationService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -16,8 +17,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -32,11 +33,12 @@ import java.util.List;
 @RequestMapping("/collaboration")
 @RequiredArgsConstructor
 @Tag(name = "Collaboration", description = "SonoShare - Scan/Image sharing and collaboration APIs")
+@PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SONOGRAPHER', 'RADIOLOGIST', 'PHYSICIAN', 'ADMIN', 'SUPER_ADMIN')")
 public class CollaborationController {
 
         private final CollaborationService collaborationService;
         private final NotificationService notificationService;
-        private final UserRepository userRepository;
+        private final CurrentUserService currentUserService;
 
         // ========== Share Scan/Image ==========
 
@@ -70,6 +72,8 @@ public class CollaborationController {
                         @RequestPart(value = "colleagueIds", required = false) List<String> colleagueIds,
                         @RequestPart(value = "title", required = false) String title,
                         @RequestPart(value = "requestMessage", required = false) String requestMessage,
+                        @RequestPart(value = "urgency", required = false) String urgency,
+                        @RequestPart(value = "department", required = false) String department,
                         Authentication authentication) {
 
                 User user = getUser(authentication);
@@ -80,6 +84,8 @@ public class CollaborationController {
                                 .colleagueIds(colleagueIds)
                                 .title(title)
                                 .requestMessage(requestMessage)
+                                .urgency(urgency != null ? UrgencyLevel.valueOf(urgency.toUpperCase()) : null)
+                                .department(department)
                                 .build();
 
                 SharedScanResponse response = collaborationService.shareScan(request, imageFile, user);
@@ -132,6 +138,17 @@ public class CollaborationController {
                                 .success(true)
                                 .data(response)
                                 .build());
+        }
+
+        @GetMapping("/{id}/audit-trail")
+        @Operation(summary = "Shared scan audit trail", description = "Get append-only audit events for a shared case")
+        public ResponseEntity<ApiResponse<Page<AuditLogResponse>>> getAuditTrail(
+                        @PathVariable String id,
+                        Authentication authentication,
+                        Pageable pageable) {
+
+                Page<AuditLogResponse> logs = collaborationService.getAuditTrail(id, getUser(authentication), pageable);
+                return ResponseEntity.ok(ApiResponse.success(logs));
         }
 
         // ========== Comments ==========
@@ -201,7 +218,10 @@ public class CollaborationController {
                         Pageable pageable) {
 
                 User user = getUser(authentication);
-                Page<NotificationResponse> notifications = notificationService.getNotifications(user.getId(), pageable);
+                Page<NotificationResponse> notifications = notificationService.getNotifications(
+                                user.getId(),
+                                user.getOrganizationId(),
+                                pageable);
                 return ResponseEntity.ok(ApiResponse.<Page<NotificationResponse>>builder()
                                 .success(true)
                                 .data(notifications)
@@ -214,7 +234,9 @@ public class CollaborationController {
                         Authentication authentication) {
 
                 User user = getUser(authentication);
-                List<NotificationResponse> notifications = notificationService.getUnreadNotifications(user.getId());
+                List<NotificationResponse> notifications = notificationService.getUnreadNotifications(
+                                user.getId(),
+                                user.getOrganizationId());
                 return ResponseEntity.ok(ApiResponse.<List<NotificationResponse>>builder()
                                 .success(true)
                                 .data(notifications)
@@ -225,7 +247,7 @@ public class CollaborationController {
         @Operation(summary = "Unread count", description = "Get count of unread notifications")
         public ResponseEntity<ApiResponse<Long>> getUnreadCount(Authentication authentication) {
                 User user = getUser(authentication);
-                long count = notificationService.getUnreadCount(user.getId());
+                long count = notificationService.getUnreadCount(user.getId(), user.getOrganizationId());
                 return ResponseEntity.ok(ApiResponse.<Long>builder()
                                 .success(true)
                                 .data(count)
@@ -239,7 +261,7 @@ public class CollaborationController {
                         Authentication authentication) {
 
                 User user = getUser(authentication);
-                NotificationResponse response = notificationService.markAsRead(id, user.getId());
+                NotificationResponse response = notificationService.markAsRead(id, user.getId(), user.getOrganizationId());
                 return ResponseEntity.ok(ApiResponse.<NotificationResponse>builder()
                                 .success(true)
                                 .data(response)
@@ -250,7 +272,7 @@ public class CollaborationController {
         @Operation(summary = "Mark all as read", description = "Mark all notifications as read")
         public ResponseEntity<ApiResponse<Integer>> markAllAsRead(Authentication authentication) {
                 User user = getUser(authentication);
-                int count = notificationService.markAllAsRead(user.getId());
+                int count = notificationService.markAllAsRead(user.getId(), user.getOrganizationId());
                 return ResponseEntity.ok(ApiResponse.<Integer>builder()
                                 .success(true)
                                 .message(count + " notifications marked as read")
@@ -261,9 +283,6 @@ public class CollaborationController {
         // ========== Helper ==========
 
         private User getUser(Authentication authentication) {
-                UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-                String email = userDetails.getUsername();
-                return userRepository.findByEmail(email)
-                                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+                return currentUserService.requireUser(authentication);
         }
 }
