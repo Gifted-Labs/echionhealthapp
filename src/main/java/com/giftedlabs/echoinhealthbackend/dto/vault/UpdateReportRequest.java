@@ -11,6 +11,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDate;
+import java.util.Map;
 
 /**
  * DTO for updating an existing report (all fields optional)
@@ -47,6 +48,10 @@ public class UpdateReportRequest {
     private String impression;
 
     private String recommendation;
+
+    private Map<String, Object> structuredFindings;
+
+    private String[] recommendationOptions;
 
     // Metadata
     private String[] tags;

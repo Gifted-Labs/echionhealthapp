@@ -14,6 +14,7 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetUrlRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
@@ -84,16 +85,10 @@ public class FileStorageService {
     /**
      * Store a file and return its path/identifier
      */
-    public String storeFile(MultipartFile file, String userId) {
+    public String storeFile(MultipartFile file, String organizationId, String userId) {
         String originalFilename = StringUtils.cleanPath(file.getOriginalFilename());
-        String extension = "";
-        int dotIndex = originalFilename.lastIndexOf('.');
-        if (dotIndex >= 0) {
-            extension = originalFilename.substring(dotIndex);
-        }
-
-        // Create a unique filename: userId/uuid_filename
-        String filename = userId + "/" + UUID.randomUUID() + "_" + originalFilename;
+        String tenantPrefix = organizationId != null ? organizationId : "platform";
+        String filename = tenantPrefix + "/" + userId + "/" + UUID.randomUUID() + "_" + originalFilename;
 
         try {
             if (isR2Storage()) {
@@ -124,6 +119,34 @@ public class FileStorageService {
 
         s3Client.putObject(putOb, RequestBody.fromInputStream(file.getInputStream(), file.getSize()));
         return key;
+    }
+
+    /**
+     * Removes a stored object so it stops consuming the tenant's storage quota.
+     *
+     * <p>Returns whether the blob is now gone. Deletion failures are logged rather than thrown:
+     * a soft-deleted record whose blob could not be removed should keep counting against the
+     * quota, which is exactly what a {@code false} return causes the caller to record.
+     */
+    public boolean deleteFile(String filePath) {
+        if (filePath == null || filePath.isBlank()) {
+            return true;
+        }
+        try {
+            if (isR2Storage()) {
+                s3Client.deleteObject(DeleteObjectRequest.builder()
+                        .bucket(storageConfig.getR2().getBucket())
+                        .key(filePath)
+                        .build());
+            } else {
+                Files.deleteIfExists(this.localStoragePath.resolve(filePath));
+            }
+            return true;
+        } catch (Exception e) {
+            log.warn("Failed to delete stored file {}; it will keep counting toward storage usage",
+                    filePath, e);
+            return false;
+        }
     }
 
     public StorageType getCurrentStorageType() {
