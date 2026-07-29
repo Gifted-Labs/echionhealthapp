@@ -3,14 +3,16 @@ package com.giftedlabs.echoinhealthbackend.controller;
 import com.giftedlabs.echoinhealthbackend.dto.common.ApiResponse;
 import com.giftedlabs.echoinhealthbackend.dto.vault.CreateFolderRequest;
 import com.giftedlabs.echoinhealthbackend.dto.vault.FolderResponse;
+import com.giftedlabs.echoinhealthbackend.security.AuthenticatedUser;
+import com.giftedlabs.echoinhealthbackend.security.CurrentUserService;
 import com.giftedlabs.echoinhealthbackend.service.FolderService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -19,10 +21,11 @@ import java.util.List;
 @RequestMapping("/vault/folders")
 @RequiredArgsConstructor
 @Tag(name = "Folders", description = "Report organization APIs")
+@PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SONOGRAPHER', 'RADIOLOGIST', 'PHYSICIAN', 'ADMIN', 'SUPER_ADMIN')")
 public class FolderController {
 
     private final FolderService folderService;
-    private final com.giftedlabs.echoinhealthbackend.repository.UserRepository userRepository;
+    private final CurrentUserService currentUserService;
 
     @PostMapping
     @Operation(summary = "Create folder", description = "Create a new folder for organizing reports")
@@ -70,10 +73,7 @@ public class FolderController {
     }
 
     private String getUserId(Authentication authentication) {
-        UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-        return userRepository.findByEmail(userDetails.getUsername())
-                .orElseThrow(
-                        () -> new com.giftedlabs.echoinhealthbackend.exception.UserNotFoundException("User not found"))
-                .getId();
+        AuthenticatedUser user = currentUserService.requirePrincipal(authentication);
+        return user.getUserId();
     }
 }

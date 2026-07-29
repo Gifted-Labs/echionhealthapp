@@ -1,41 +1,45 @@
 package com.giftedlabs.echoinhealthbackend.entity;
 
-/**
- * Types of ultrasound scans
- */
 public enum ScanType {
-    // Knee scans
-    KNEE_JOINTS,
-    LT_KNEE_JOINT,
-    RT_KNEE_JOINT,
-
-    // Elbow scans
-    ELBOW_JOINTS,
-    LT_ELBOW_JOINTS,
-    RT_ELBOW_JOINTS,
-
-    // Shoulder scans
-    BOTH_SHOULDER_JOINT,
-    RT_SHOULDER_JOINT,
-    LT_SHOULDER_JOINTS,
-    RT_SHOULDER_JOINTS,
-
-    // Wrist scans
-    BOTH_WRIST_JOINT,
-    LT_WRIST_JOINT,
-    RT_WRIST_JOINT,
-
-    // General categories
-    ABDOMEN,
-    PELVIS,
-    OBSTETRIC,
-    GYNECOLOGICAL,
-    CARDIAC,
-    VASCULAR,
+    ABDOMINAL,
+    ABDOMEN_PELVIS_MALE,
+    ABDOMEN_PELVIS_FEMALE,
+    PELVIC_MALE,
+    PELVIC_FEMALE,
+    OBSTETRIC_EARLY,
+    OBSTETRIC_LATE,
+    OBSTETRIC_TWINS,
+    ANOMALY,
+    BIOPHYSICAL_PROFILE,
+    TRANSABDOMINAL_PELVIC,
+    TRANSVAGINAL,
+    ECHO_ADULT,
+    ECHO_PEDIATRIC,
     MUSCULOSKELETAL,
+    NECK,
     THYROID,
     BREAST,
-    RENAL,
-    HEPATOBILIARY,
-    OTHER
+    CHEST,
+    SCROTAL,
+    PENILE,
+    NEONATAL_HEAD,
+    ARTERIAL_DOPPLER_BOTH_LOWER,
+    ARTERIAL_DOPPLER_LEFT_LOWER,
+    ARTERIAL_DOPPLER_RIGHT_LOWER,
+    ARTERIAL_DOPPLER_LEFT_UPPER,
+    ARTERIAL_DOPPLER_RIGHT_UPPER,
+    VENOUS_DOPPLER_BOTH_LOWER,
+    VENOUS_DOPPLER_LEFT_LOWER,
+    VENOUS_DOPPLER_RIGHT_LOWER,
+    VENOUS_DOPPLER_LEFT_UPPER,
+    VENOUS_DOPPLER_RIGHT_UPPER,
+    GENERAL;
+
+    public boolean isDoppler() {
+        return name().contains("DOPPLER");
+    }
+
+    public boolean isGeneral() {
+        return this == GENERAL;
+    }
 }

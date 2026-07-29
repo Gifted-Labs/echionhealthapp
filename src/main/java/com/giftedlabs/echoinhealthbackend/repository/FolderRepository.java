@@ -10,11 +10,15 @@ import java.util.Optional;
 @Repository
 public interface FolderRepository extends JpaRepository<Folder, String> {
 
-    List<Folder> findByUserIdAndParentFolderIsNull(String userId);
+    List<Folder> findByUserIdAndOrganizationIdAndParentFolderIsNull(String userId, String organizationId);
 
-    List<Folder> findByUserIdAndParentFolderId(String userId, String parentFolderId);
+    List<Folder> findByUserIdAndOrganizationIdAndParentFolderId(String userId, String organizationId, String parentFolderId);
 
-    Optional<Folder> findByIdAndUserId(String id, String userId);
+    Optional<Folder> findByIdAndUserIdAndOrganizationId(String id, String userId, String organizationId);
 
-    boolean existsByUserIdAndNameAndParentFolderId(String userId, String name, String parentFolderId);
+    boolean existsByUserIdAndOrganizationIdAndNameAndParentFolderId(
+            String userId,
+            String organizationId,
+            String name,
+            String parentFolderId);
 }

@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "folders", uniqueConstraints = @UniqueConstraint(columnNames = { "user_id", "name",
         "parent_folder_id" }), indexes = {
+                @Index(name = "idx_folders_org_user", columnList = "organization_id,user_id"),
                 @Index(name = "idx_folders_user", columnList = "user_id")
         })
 @Data
@@ -26,6 +27,10 @@ public class Folder {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "organization_id", nullable = false)
+    private Organization organization;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)

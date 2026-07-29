@@ -3,40 +3,28 @@ package com.giftedlabs.echoinhealthbackend.dto.vault;
 import com.giftedlabs.echoinhealthbackend.entity.Gender;
 import com.giftedlabs.echoinhealthbackend.entity.ReportType;
 import com.giftedlabs.echoinhealthbackend.entity.ScanType;
-import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * DTO for creating a custom report template
+ * Request DTO for updating an existing template (UR-051).
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class CreateTemplateRequest {
+public class UpdateTemplateRequest {
 
-    @NotBlank(message = "Template name is required")
     private String name;
-
     private String description;
-
-    private Gender gender; // null means applicable to both
-
+    private Gender gender;
     private ReportType reportType;
-
     private ScanType scanType;
-
     private String category;
-
     private String defaultFindings;
-
     private String defaultImpression;
-
+    private Boolean isDefault;
     private String[] tags;
-
-    @Builder.Default
-    private Boolean isDefault = false;
 }
