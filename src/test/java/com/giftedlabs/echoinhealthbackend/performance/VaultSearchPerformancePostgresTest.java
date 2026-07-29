@@ -13,6 +13,7 @@ import com.giftedlabs.echoinhealthbackend.support.PostgresIntegrationTest;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,6 +51,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * requirement thresholds, which leaves generous headroom over observed values; the printed
  * numbers are the useful signal.
  */
+@Tag("performance")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class VaultSearchPerformancePostgresTest extends PostgresIntegrationTest {
 

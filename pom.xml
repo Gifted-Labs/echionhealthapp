@@ -28,6 +28,15 @@
     </scm>
     <properties>
         <java.version>21</java.version>
+        <test.excludedGroups>performance</test.excludedGroups>
+
+        <!-- Security overrides for dependencies managed by Spring Boot 4.0.6. -->
+        <jackson-2-bom.version>2.21.4</jackson-2-bom.version>
+        <jackson-bom.version>3.1.4</jackson-bom.version>
+        <netty.version>4.2.16.Final</netty.version>
+        <postgresql.version>42.7.12</postgresql.version>
+        <tomcat.version>11.0.22</tomcat.version>
+        <tika.version>3.2.2</tika.version>
     </properties>
     <dependencies>
         <dependency>
@@ -117,7 +126,7 @@
         <dependency>
             <groupId>org.apache.tika</groupId>
             <artifactId>tika-core</artifactId>
-            <version>2.9.1</version>
+            <version>${tika.version}</version>
         </dependency>
         
         <!-- AWS SDK S3 for Railway Object Storage -->
@@ -136,7 +145,6 @@
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <version>42.7.8</version>
         </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -192,6 +200,19 @@
 
     <build>
         <plugins>
+            <!-- Performance tests assert absolute latency, which is only meaningful on an
+                 unloaded machine. Running them alongside the rest of the suite makes them
+                 measure contention rather than the code: the same assertion that passes at
+                 13ms standalone was seen at 2126ms during a full `verify`. They are tagged
+                 and excluded here, and run in their own isolated CI job instead.
+                 Run locally with: ./mvnw verify -DexcludedGroups= -Dgroups=performance -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludedGroups>${test.excludedGroups}</excludedGroups>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>

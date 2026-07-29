@@ -1,0 +1,28 @@
+# Gitleaks configuration.
+#
+# Extends the default rule set rather than replacing it, so new detectors ship automatically.
+# The allowlist below covers deliberately fake credentials in test fixtures — anything added
+# here must be verifiably not a real secret.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known-fake values used by the test profile"
+
+paths = [
+  # Test configuration: the JWT secret and encryption key here are fixed strings that exist
+  # only so the Spring context can start under the `test` profile. They are not, and must
+  # never be, values used by any deployment.
+  '''src/test/resources/application-test\.yaml''',
+  # Test sources construct stub API keys ("test-gemini-key", "sk-REDACTED", etc.) to exercise
+  # provider wiring against a local stub server.
+  '''src/test/java/.*\.java''',
+]
+
+regexes = [
+  # Base64 of "test-jwt-secret-for-echion-health-tests-1234567890"
+  '''dGVzdC1qd3Qtc2VjcmV0LWZvci1lY2hpb24taGVhbHRoLXRlc3RzLTEyMzQ1Njc4OTA''',
+  '''test-encryption-key-32-bytes-long''',
+  '''test-admin-password''',
+]
