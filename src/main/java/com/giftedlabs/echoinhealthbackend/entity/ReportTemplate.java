@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "report_templates", indexes = {
+        @Index(name = "idx_templates_org_user", columnList = "organization_id,user_id"),
         @Index(name = "idx_templates_user", columnList = "user_id")
 })
 @Data
@@ -26,6 +27,10 @@ public class ReportTemplate {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "organization_id")
+    private Organization organization;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id")
@@ -46,6 +51,13 @@ public class ReportTemplate {
     @Column(name = "report_type", length = 100)
     private ReportType reportType;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "scan_type", length = 100)
+    private ScanType scanType;
+
+    @Column(name = "category", length = 255)
+    private String category;
+
     @Column(name = "default_findings", columnDefinition = "TEXT")
     private String defaultFindings;
 
@@ -59,6 +71,52 @@ public class ReportTemplate {
     @Column(name = "is_active")
     @Builder.Default
     private Boolean isActive = true;
+
+    /**
+     * Whether PHI has been stripped from this template (UR-049)
+     */
+    @Column(name = "phi_free")
+    @Builder.Default
+    private Boolean phiFree = false;
+
+    @Column(name = "is_favorite")
+    @Builder.Default
+    private Boolean isFavorite = false;
+
+    @Column(name = "source_format", length = 20)
+    private String sourceFormat;
+
+    /**
+     * Custom tags for categorization (UR-051)
+     * e.g., complexity, indication, normal/abnormal
+     */
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.ARRAY)
+    @Column(name = "tags")
+    private String[] tags;
+
+    /**
+     * Original filename if uploaded from a file (UR-047)
+     */
+    @Column(name = "original_filename", length = 500)
+    private String originalFilename;
+
+    /**
+     * File path in storage if uploaded from a file (UR-047)
+     */
+    @Column(name = "file_path", length = 1000)
+    private String filePath;
+
+    @Column(name = "file_size")
+    private Long fileSize;
+
+    /**
+     * Whether the underlying blob has actually been removed from object storage. Soft-deleted
+     * templates keep occupying real bytes until this flips, so storage accounting keys off
+     * this flag rather than off {@code isActive}.
+     */
+    @Column(name = "blob_deleted", nullable = false)
+    @Builder.Default
+    private Boolean blobDeleted = false;
 
     // Usage Analytics (UR-034)
     @Column(name = "usage_count")

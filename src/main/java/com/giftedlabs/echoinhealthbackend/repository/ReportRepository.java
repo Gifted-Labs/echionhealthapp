@@ -16,13 +16,16 @@ import java.util.Optional;
 public interface ReportRepository extends JpaRepository<Report, String> {
 
     // Find all reports for a user
-    Page<Report> findByUserId(String userId, Pageable pageable);
+    Page<Report> findByUserIdAndOrganizationId(String userId, String organizationId, Pageable pageable);
 
     // Find favorite reports
-    List<Report> findByUserIdAndIsFavoriteTrue(String userId);
+    List<Report> findByUserIdAndOrganizationIdAndIsFavoriteTrue(String userId, String organizationId);
 
     // Find recent reports
-    List<Report> findTop10ByUserIdOrderByCreatedAtDesc(String userId);
+    List<Report> findTop10ByUserIdAndOrganizationIdOrderByCreatedAtDesc(String userId, String organizationId);
+
+    @Query("SELECT COALESCE(SUM(r.fileSize), 0) FROM Report r WHERE r.organization.id = :organizationId")
+    long sumFileSizeByOrganizationId(@Param("organizationId") String organizationId);
 
     /**
      * Optimized full-text search with ILIKE fallback on extracted_text.
@@ -37,6 +40,7 @@ public interface ReportRepository extends JpaRepository<Report, String> {
     @Query(value = """
             SELECT r.* FROM reports r
             WHERE r.user_id = :userId
+            AND r.organization_id = :organizationId
             AND (
                 :query IS NULL OR :query = ''
                 OR r.search_vector @@ plainto_tsquery('english', :query)
@@ -62,6 +66,7 @@ public interface ReportRepository extends JpaRepository<Report, String> {
             """, countQuery = """
             SELECT count(*) FROM reports r
             WHERE r.user_id = :userId
+            AND r.organization_id = :organizationId
             AND (
                 :query IS NULL OR :query = ''
                 OR r.search_vector @@ plainto_tsquery('english', :query)
@@ -79,6 +84,7 @@ public interface ReportRepository extends JpaRepository<Report, String> {
             """, nativeQuery = true)
     Page<Report> searchReports(
             @Param("userId") String userId,
+            @Param("organizationId") String organizationId,
             @Param("query") String query,
             @Param("scanType") String scanType,
             @Param("reportType") String reportType,
@@ -86,7 +92,7 @@ public interface ReportRepository extends JpaRepository<Report, String> {
             @Param("favoritesOnly") Boolean favoritesOnly,
             Pageable pageable);
 
-    Optional<Report> findByIdAndUserId(String id, String userId);
+    Optional<Report> findByIdAndUserIdAndOrganizationId(String id, String userId, String organizationId);
 
     /**
      * Update search vector for full-text search.
@@ -125,16 +131,30 @@ public interface ReportRepository extends JpaRepository<Report, String> {
     /**
      * Count reports for a user
      */
-    long countByUserId(String userId);
+    long countByUserIdAndOrganizationId(String userId, String organizationId);
+
+    long countByOrganizationId(String organizationId);
 
     // ================= Analytics Queries =================
 
     long countByIsAiGeneratedTrue();
 
+    long countByOrganizationIdAndIsAiGeneratedTrue(String organizationId);
+
+    /** AI-drafted reports a clinician actually changed — the measured revision rate. */
+    long countByIsAiGeneratedTrueAndAiOutputEditedTrue();
+
+    long countByOrganizationIdAndIsAiGeneratedTrueAndAiOutputEditedTrue(String organizationId);
+
     long countByIsAiGeneratedFalse();
+
+    long countByOrganizationIdAndIsAiGeneratedFalse(String organizationId);
 
     @Query("SELECT AVG(r.processingTimeSeconds) FROM Report r WHERE r.isAiGenerated = true")
     Double getAverageAiProcessingTime();
+
+    @Query("SELECT AVG(r.processingTimeSeconds) FROM Report r WHERE r.organization.id = :organizationId AND r.isAiGenerated = true")
+    Double getAverageAiProcessingTimeByOrganization(@Param("organizationId") String organizationId);
 
     long countByCreatedAtBetween(LocalDateTime start, LocalDateTime end);
 

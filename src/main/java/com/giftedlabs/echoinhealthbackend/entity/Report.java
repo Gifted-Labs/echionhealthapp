@@ -16,6 +16,7 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "reports", indexes = {
+        @Index(name = "idx_reports_org_user", columnList = "organization_id,user_id"),
         @Index(name = "idx_reports_user", columnList = "user_id"),
         @Index(name = "idx_reports_scan_date", columnList = "scan_date"),
         @Index(name = "idx_reports_patient_name", columnList = "patient_name")
@@ -29,6 +30,10 @@ public class Report {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "organization_id", nullable = false)
+    private Organization organization;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
@@ -73,6 +78,13 @@ public class Report {
     @Column(name = "recommendation", columnDefinition = "TEXT")
     private String recommendation;
 
+    @Column(name = "structured_findings", columnDefinition = "TEXT")
+    private String structuredFindings;
+
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.ARRAY)
+    @Column(name = "recommendation_options")
+    private String[] recommendationOptions;
+
     // File Information (for uploaded documents)
     @Column(name = "original_filename", length = 500)
     private String originalFilename;
@@ -99,7 +111,8 @@ public class Report {
     @Column(name = "search_vector", columnDefinition = "tsvector", insertable = false, updatable = false)
     private String searchVector;
 
-    @Column(name = "tags", columnDefinition = "TEXT[]")
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.ARRAY)
+    @Column(name = "tags")
     private String[] tags;
 
     @Column(name = "is_favorite")
@@ -111,11 +124,36 @@ public class Report {
     @Builder.Default
     private Boolean isAiGenerated = false;
 
+    /**
+     * Whether a clinician changed the AI's findings, impression or recommendation before
+     * finalizing. This is the measured basis for the AI acceptance and revision rates, which
+     * were previously derived from a hardcoded 12% assumption.
+     */
+    @Column(name = "ai_output_edited", nullable = false)
+    @Builder.Default
+    private Boolean aiOutputEdited = false;
+
     @Column(name = "status", length = 20)
     private String status; // e.g., DRAFT, FINAL
 
+    @Column(name = "applied_signature_id", length = 36)
+    private String appliedSignatureId;
+
+    @Column(name = "signatory_name", length = 255)
+    private String signatoryName;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "signatory_designation", length = 50)
+    private Designation signatoryDesignation;
+
+    @Column(name = "finalized_at")
+    private LocalDateTime finalizedAt;
+
     @Column(name = "processing_time_seconds")
     private Integer processingTimeSeconds;
+
+    @Column(name = "last_auto_save_at")
+    private LocalDateTime lastAutoSaveAt;
 
     // Timestamps
     @CreationTimestamp
