@@ -445,6 +445,8 @@ public interface VaultTemplateRepository extends JpaRepository<VaultTemplate, UU
 
 Group by resource. All endpoints except signup/login require an authenticated, org-scoped principal and `@PreAuthorize` role checks. Use DTOs (records) for request/response — never expose JPA entities directly.
 
+> **This section is the original design sketch, not the shipped contract.** Several paths below were renamed during implementation (templates and folders live under `/vault/...`, users under `/admin/users`, AI generation under `/generate-report`, sharing under `/collaboration`). For the endpoints as actually implemented — with roles, payloads and response shapes — see [`APPLICATION_DOCUMENTATION.md` §3](./APPLICATION_DOCUMENTATION.md#3-api-reference), which is authoritative.
+
 ### Auth & org
 ```
 POST   /api/auth/signup                # creates Organization + first HOSPITAL_ADMIN
@@ -507,14 +509,19 @@ GET    /api/vault/templates/{id}/versions
 POST   /api/vault/templates/{id}/restore/{versionId}
 ```
 
-### SonoShare
+### SonoShare — implemented as `/api/collaboration`
 ```
-POST   /api/share/scans
-GET    /api/share/scans/{id}
-POST   /api/share/scans/{id}/comments
-POST   /api/share/scans/{id}/resolve
-GET    /api/share/scans/{id}/audit
+POST   /api/collaboration/share                 # JSON; sharingLevel, urgency, department
+POST   /api/collaboration/share-with-image      # multipart
+GET    /api/collaboration/shared-with-me
+GET    /api/collaboration/my-shares
+GET    /api/collaboration/{id}
+POST   /api/collaboration/{id}/comments         # supports isSuggestedImpression
+GET    /api/collaboration/{id}/comments
+PUT    /api/collaboration/{id}/resolve
+GET    /api/collaboration/{id}/audit-trail      # paginated, append-only
 ```
+Sharing levels: `SPECIFIC_COLLEAGUES`, `DEPARTMENT`, `EVERYONE`, `ORGANIZATION_WIDE` — all bounded by the caller's organization. Urgency: `LOW`, `MEDIUM`, `HIGH`, `URGENT`.
 
 ### Billing
 ```
