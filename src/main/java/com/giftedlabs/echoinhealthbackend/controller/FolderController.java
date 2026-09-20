@@ -9,6 +9,7 @@ import com.giftedlabs.echoinhealthbackend.service.FolderService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import com.giftedlabs.echoinhealthbackend.security.RoleGroups;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -21,7 +22,7 @@ import java.util.List;
 @RequestMapping("/vault/folders")
 @RequiredArgsConstructor
 @Tag(name = "Folders", description = "Report organization APIs")
-@PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SONOGRAPHER', 'RADIOLOGIST', 'PHYSICIAN', 'ADMIN', 'SUPER_ADMIN')")
+@PreAuthorize(RoleGroups.CLINICAL)
 public class FolderController {
 
     private final FolderService folderService;

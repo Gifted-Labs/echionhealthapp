@@ -322,7 +322,13 @@ public class BillingService {
                 .build();
     }
 
-    private long currentStorageUsageBytes(Organization organization) {
+    /**
+     * Total bytes a tenant occupies across reports, templates and shared images.
+     *
+     * <p>Public so the platform console can report per-tenant storage without duplicating the
+     * three-table sum and risking the two answers drifting apart.
+     */
+    public long currentStorageUsageBytes(Organization organization) {
         return reportRepository.sumFileSizeByOrganizationId(organization.getId())
                 + reportTemplateRepository.sumFileSizeByOrganizationId(organization.getId())
                 + sharedScanRepository.sumImageSizeByOrganizationId(organization.getId());

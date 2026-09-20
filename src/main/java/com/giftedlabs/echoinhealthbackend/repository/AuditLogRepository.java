@@ -99,6 +99,39 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, String> {
          */
         long countByAction(String action);
 
+        /** Failed occurrences of one action since a moment, e.g. today's failed sign-ins. */
+        long countByActionAndSuccessFalseAndCreatedAtAfter(String action, LocalDateTime since);
+
+        /** Recent activity within one tenant, for the platform console's tenant drill-down. */
+        Page<AuditLog> findByOrganizationIdOrderByCreatedAtDesc(String organizationId, Pageable pageable);
+
+        /**
+         * Cross-tenant audit search for the platform console. Filters are all optional; the id is a
+         * final tiebreak so pagination is stable when rows share a timestamp.
+         */
+        @Query("""
+                        SELECT a FROM AuditLog a
+                         WHERE (:action IS NULL OR :action = '' OR a.action = :action)
+                           AND (:userEmail IS NULL OR :userEmail = ''
+                                OR LOWER(a.userEmail) LIKE LOWER(CONCAT('%', :userEmail, '%')))
+                           AND (:organizationId IS NULL OR :organizationId = ''
+                                OR a.organization.id = :organizationId)
+                           AND (:success IS NULL OR a.success = :success)
+                           AND (:impersonatedOnly = FALSE OR a.impersonatedByUserId IS NOT NULL)
+                           AND (CAST(:startDate AS timestamp) IS NULL OR a.createdAt >= :startDate)
+                           AND (CAST(:endDate AS timestamp) IS NULL OR a.createdAt <= :endDate)
+                         ORDER BY a.createdAt DESC, a.id DESC
+                        """)
+        Page<AuditLog> searchPlatformAuditLogs(
+                        @Param("action") String action,
+                        @Param("userEmail") String userEmail,
+                        @Param("organizationId") String organizationId,
+                        @Param("success") Boolean success,
+                        @Param("impersonatedOnly") boolean impersonatedOnly,
+                        @Param("startDate") LocalDateTime startDate,
+                        @Param("endDate") LocalDateTime endDate,
+                        Pageable pageable);
+
         /**
          * Count failed actions in date range
          */

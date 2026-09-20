@@ -9,6 +9,7 @@ import com.giftedlabs.echoinhealthbackend.service.AdminService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import com.giftedlabs.echoinhealthbackend.security.RoleGroups;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -27,7 +28,7 @@ import java.util.List;
 @RequestMapping("/admin")
 @RequiredArgsConstructor
 @Tag(name = "Admin", description = "Super Admin management APIs")
-@PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'ADMIN', 'SUPER_ADMIN')")
+@PreAuthorize(RoleGroups.TENANT_ADMIN)
 public class AdminController {
 
         private final AdminService adminService;
@@ -49,7 +50,7 @@ public class AdminController {
         // ========== System Maintenance ==========
 
         @PostMapping("/rebuild-search-vectors")
-        @PreAuthorize("hasRole('SUPER_ADMIN')")
+        @PreAuthorize(RoleGroups.SUPER_ADMIN)
         @Operation(summary = "Rebuild search vectors", description = "Rebuild all search vectors for optimized search (SUPER_ADMIN only)")
         public ResponseEntity<ApiResponse<String>> rebuildSearchVectors(Authentication authentication) {
                 User adminUser = getAdminUser(authentication);
@@ -64,7 +65,7 @@ public class AdminController {
         // ========== User Management ==========
 
         @PostMapping("/users")
-        @PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SUPER_ADMIN')")
+        @PreAuthorize(RoleGroups.USER_MANAGER)
         @Operation(summary = "Create user", description = "Create a tenant-scoped user account")
         public ResponseEntity<ApiResponse<AdminUserResponse>> createUser(
                         @Valid @RequestBody CreateUserRequest request,
@@ -114,7 +115,7 @@ public class AdminController {
         }
 
         @PutMapping("/users/{id}/role")
-        @PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SUPER_ADMIN')")
+        @PreAuthorize(RoleGroups.USER_MANAGER)
         @Operation(summary = "Update role", description = "Change a user's role within allowed admin scope")
         public ResponseEntity<ApiResponse<AdminUserResponse>> updateUserRole(
                         @PathVariable String id,
@@ -161,7 +162,7 @@ public class AdminController {
         }
 
         @DeleteMapping("/users/{id}")
-        @PreAuthorize("hasRole('SUPER_ADMIN')")
+        @PreAuthorize(RoleGroups.SUPER_ADMIN)
         @Operation(summary = "Delete user", description = "Permanently delete a user (SUPER_ADMIN only)")
         public ResponseEntity<ApiResponse<Void>> deleteUser(
                         @PathVariable String id,
@@ -176,7 +177,7 @@ public class AdminController {
         }
 
         @PutMapping("/users/{id}/deactivate")
-        @PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SUPER_ADMIN')")
+        @PreAuthorize(RoleGroups.USER_MANAGER)
         @Operation(summary = "Deactivate user", description = "Soft deactivate a user's account while preserving history")
         public ResponseEntity<ApiResponse<AdminUserResponse>> deactivateUser(
                         @PathVariable String id,
@@ -191,7 +192,7 @@ public class AdminController {
         }
 
         @PutMapping("/users/{id}/reactivate")
-        @PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SUPER_ADMIN')")
+        @PreAuthorize(RoleGroups.USER_MANAGER)
         @Operation(summary = "Reactivate user", description = "Restore a previously deactivated user account")
         public ResponseEntity<ApiResponse<AdminUserResponse>> reactivateUser(
                         @PathVariable String id,
@@ -206,7 +207,7 @@ public class AdminController {
         }
 
         @PutMapping("/users/{id}/signature-permission")
-        @PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SUPER_ADMIN')")
+        @PreAuthorize(RoleGroups.USER_MANAGER)
         @Operation(summary = "Update signature permission", description = "Grant or revoke signature-upload permission for a user")
         public ResponseEntity<ApiResponse<AdminUserResponse>> updateSignaturePermission(
                         @PathVariable String id,

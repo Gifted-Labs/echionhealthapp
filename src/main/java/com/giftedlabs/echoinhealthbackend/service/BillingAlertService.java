@@ -90,7 +90,8 @@ public class BillingAlertService {
         // Platform operators, not tenant admins: only they can act on this.
         for (User operator : userRepository.findByRole(Role.SUPER_ADMIN)) {
             try {
-                emailService.sendEmail(operator.getEmail(), title, upgradeEmailBody(message));
+                emailService.sendOperationalEmail(operator.getEmail(), title, upgradeEmailBody(message),
+                        EmailService.TEMPLATE_UPGRADE_REQUEST, organization.getId());
             } catch (RuntimeException e) {
                 log.warn("Failed to email upgrade request to {}", operator.getEmail(), e);
             }
@@ -108,8 +109,9 @@ public class BillingAlertService {
             log.warn("Failed to create billing notification for {}", admin.getEmail(), e);
         }
         try {
-            emailService.sendEmail(admin.getEmail(),
-                    title + " - " + organization.getName(), usageEmailBody(title, usage));
+            emailService.sendOperationalEmail(admin.getEmail(),
+                    title + " - " + organization.getName(), usageEmailBody(title, usage),
+                    EmailService.TEMPLATE_BILLING_ALERT, organization.getId());
         } catch (RuntimeException e) {
             log.warn("Failed to email billing alert to {}", admin.getEmail(), e);
         }

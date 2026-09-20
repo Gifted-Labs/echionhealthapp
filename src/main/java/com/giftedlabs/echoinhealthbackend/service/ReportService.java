@@ -412,7 +412,14 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public Page<ReportResponse> searchReports(SearchReportsRequest request, String userId, Pageable pageable) {
-        Pageable unsortedPageable = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), Sort.unsorted());
+        // Sorting is stripped on purpose. The native query ranks by search relevance and cannot
+        // have a caller's ORDER BY appended to it without producing invalid SQL, so the ordering
+        // belongs to the query. What it was missing was determinism: it ended on created_at, and a
+        // batch upload commits many rows with effectively identical timestamps, leaving PostgreSQL
+        // free to return tied rows in a different order on every call. The query now ends on a
+        // unique id tiebreak, so repeated requests and successive pages agree with each other.
+        Pageable effectivePageable =
+                PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), Sort.unsorted());
 
         Page<Report> reports = reportRepository.searchReports(
                 userId,
@@ -422,7 +429,7 @@ public class ReportService {
                 request.getReportType() != null ? request.getReportType().name() : null,
                 request.getPatientName(),
                 request.getFavoritesOnly() != null ? request.getFavoritesOnly() : false,
-                unsortedPageable);
+                effectivePageable);
 
         return reports.map(this::mapToResponse);
     }
@@ -590,7 +597,7 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public List<ReportSummaryResponse> getRecentReports(String userId) {
-        return reportRepository.findTop10ByUserIdAndOrganizationIdOrderByCreatedAtDesc(userId, currentOrganizationId(userId)).stream()
+        return reportRepository.findTop10ByUserIdAndOrganizationIdOrderByCreatedAtDescIdDesc(userId, currentOrganizationId(userId)).stream()
                 .map(this::mapToSummary)
                 .collect(Collectors.toList());
     }

@@ -5,6 +5,7 @@ import com.giftedlabs.echoinhealthbackend.dto.vault.ScanTypeDefinitionResponse;
 import com.giftedlabs.echoinhealthbackend.entity.ScanType;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -13,6 +14,17 @@ import java.util.Map;
 public class ScanTypeDefinitionService {
 
     private static final List<String> DOPPLER_MEASUREMENT_COLUMNS = List.of("measurement", "finding");
+
+    /**
+     * Key of the catch-all section appended to every scan type.
+     *
+     * <p>Every definition names the organs that study looks at, but none of them had anywhere to
+     * record an incidental finding that belongs to no named organ. Sonographers were pushing those
+     * into an unrelated organ field or dropping them. It is appended last so it reads as a
+     * catch-all after the organ list rather than as a peer of the liver.
+     */
+    public static final String OTHER_FINDINGS_KEY = "other_findings";
+    private static final String OTHER_FINDINGS_LABEL = "Other Findings";
     private static final List<String> DEFAULT_RECOMMENDATIONS = List.of(
             "Clinical correlation advised",
             "Follow-up imaging if symptoms persist",
@@ -124,7 +136,7 @@ public class ScanTypeDefinitionService {
                 .scanType(ScanType.GENERAL)
                 .displayName("General Report")
                 .category("General")
-                .sections(List.of(section("general_findings", "General Findings")))
+                .sections(withOtherFindings(List.of(section("general_findings", "General Findings"))))
                 .recommendationOptions(DEFAULT_RECOMMENDATIONS)
                 .measurementColumns(List.of())
                 .hasMeasurementTable(false)
@@ -140,7 +152,7 @@ public class ScanTypeDefinitionService {
                 .scanType(scanType)
                 .displayName(displayName)
                 .category(category)
-                .sections(sections)
+                .sections(withOtherFindings(sections))
                 .recommendationOptions(DEFAULT_RECOMMENDATIONS)
                 .measurementColumns(List.of())
                 .hasMeasurementTable(false)
@@ -153,15 +165,27 @@ public class ScanTypeDefinitionService {
                 .scanType(scanType)
                 .displayName(displayName)
                 .category("Vascular/Doppler")
-                .sections(List.of(
+                .sections(withOtherFindings(List.of(
                         measurementSection("arterial_segments", "Measured Segments", List.of("PSV", "EDV", "RI")),
                         section("waveform", "Waveform Summary"),
-                        section("impression", "Vascular Impression")))
+                        section("impression", "Vascular Impression"))))
                 .recommendationOptions(DEFAULT_RECOMMENDATIONS)
                 .measurementColumns(DOPPLER_MEASUREMENT_COLUMNS)
                 .hasMeasurementTable(true)
                 .freeFormTemplate(false)
                 .build());
+    }
+
+    /**
+     * Returns the study's own organ sections with the catch-all appended.
+     *
+     * <p>Applied centrally rather than at each of the 33 registration sites so a scan type added
+     * later cannot ship without one.
+     */
+    private List<ScanFieldDefinitionResponse> withOtherFindings(List<ScanFieldDefinitionResponse> sections) {
+        List<ScanFieldDefinitionResponse> withCatchAll = new ArrayList<>(sections);
+        withCatchAll.add(section(OTHER_FINDINGS_KEY, OTHER_FINDINGS_LABEL));
+        return List.copyOf(withCatchAll);
     }
 
     private ScanFieldDefinitionResponse section(String key, String label) {

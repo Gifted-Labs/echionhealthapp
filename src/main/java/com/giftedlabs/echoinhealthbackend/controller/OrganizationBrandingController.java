@@ -8,6 +8,7 @@ import com.giftedlabs.echoinhealthbackend.service.OrganizationBrandingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import com.giftedlabs.echoinhealthbackend.security.RoleGroups;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -25,7 +26,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/org")
 @RequiredArgsConstructor
 @Tag(name = "Organization Branding", description = "Hospital branding and letterhead APIs")
-@PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'ADMIN', 'SUPER_ADMIN')")
+@PreAuthorize(RoleGroups.TENANT_ADMIN)
 public class OrganizationBrandingController {
 
     private final OrganizationBrandingService organizationBrandingService;

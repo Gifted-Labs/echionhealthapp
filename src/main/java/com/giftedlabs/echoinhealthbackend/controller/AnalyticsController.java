@@ -3,6 +3,7 @@ package com.giftedlabs.echoinhealthbackend.controller;
 import com.giftedlabs.echoinhealthbackend.dto.AnalyticsDashboardDTO;
 import com.giftedlabs.echoinhealthbackend.security.CurrentUserService;
 import com.giftedlabs.echoinhealthbackend.service.AnalyticsService;
+import com.giftedlabs.echoinhealthbackend.security.RoleGroups;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -20,7 +21,7 @@ public class AnalyticsController {
     private final CurrentUserService currentUserService;
 
     @GetMapping("/dashboard")
-    @PreAuthorize("hasAnyAuthority('ROLE_HOSPITAL_ADMIN', 'ROLE_ADMIN', 'ROLE_SUPER_ADMIN')")
+    @PreAuthorize(RoleGroups.TENANT_ADMIN)
     public ResponseEntity<AnalyticsDashboardDTO> getDashboardMetrics(Authentication authentication) {
         return ResponseEntity.ok(analyticsService.getDashboardMetrics(currentUserService.requireUser(authentication)));
     }

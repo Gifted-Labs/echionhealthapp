@@ -32,6 +32,26 @@ public class Organization {
     @Builder.Default
     private SubscriptionTier subscriptionTier = SubscriptionTier.BASIC;
 
+    /**
+     * Whether the tenant may be used. Suspension blocks sign-in for every member without
+     * destroying anything, so it is fully reversible.
+     */
+    /**
+     * Carries a database-level default as well as the builder default. Migrations that insert an
+     * organization without naming every column — V1's legacy-default row, for one — would
+     * otherwise violate the NOT NULL constraint on any schema generated from this entity.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false, length = 20, columnDefinition = "VARCHAR(20) DEFAULT 'ACTIVE'")
+    @Builder.Default
+    private OrganizationStatus status = OrganizationStatus.ACTIVE;
+
+    @Column(name = "suspended_at")
+    private LocalDateTime suspendedAt;
+
+    @Column(name = "suspension_reason", columnDefinition = "TEXT")
+    private String suspensionReason;
+
     @Column(name = "addon_storage_mb", nullable = false)
     @Builder.Default
     private Integer addonStorageMb = 0;

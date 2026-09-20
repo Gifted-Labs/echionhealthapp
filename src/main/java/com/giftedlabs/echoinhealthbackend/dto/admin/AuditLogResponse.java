@@ -25,4 +25,12 @@ public class AuditLogResponse {
     private Boolean success;
     private String errorMessage;
     private LocalDateTime createdAt;
+
+    /**
+     * The super admin behind this action, when it was taken through an impersonated session.
+     * Null for ordinary actions. Present so the trail never attributes an action to a clinician
+     * whose session was merely borrowed.
+     */
+    private String impersonatedByUserId;
+    private String impersonatedByEmail;
 }

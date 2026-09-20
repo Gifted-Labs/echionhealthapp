@@ -7,6 +7,7 @@ import com.giftedlabs.echoinhealthbackend.exception.ResourceNotFoundException;
 import com.giftedlabs.echoinhealthbackend.service.ScanTypeDefinitionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import com.giftedlabs.echoinhealthbackend.security.RoleGroups;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -18,7 +19,7 @@ import java.util.List;
 @RequestMapping("/vault/scan-types")
 @RequiredArgsConstructor
 @Tag(name = "Scan Types", description = "Structured scan type definitions")
-@PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SONOGRAPHER', 'RADIOLOGIST', 'PHYSICIAN', 'ADMIN', 'SUPER_ADMIN')")
+@PreAuthorize(RoleGroups.CLINICAL)
 public class ScanTypeController {
 
     private final ScanTypeDefinitionService scanTypeDefinitionService;

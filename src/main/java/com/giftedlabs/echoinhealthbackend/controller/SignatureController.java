@@ -8,6 +8,7 @@ import com.giftedlabs.echoinhealthbackend.service.SignatureService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import com.giftedlabs.echoinhealthbackend.security.RoleGroups;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -22,7 +23,7 @@ import java.util.List;
 @RequestMapping("/signatures")
 @RequiredArgsConstructor
 @Tag(name = "Signatures", description = "Digital signature management APIs")
-@PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'RADIOLOGIST', 'PHYSICIAN', 'SONOGRAPHER', 'ADMIN', 'SUPER_ADMIN')")
+@PreAuthorize(RoleGroups.CLINICAL)
 public class SignatureController {
 
     private final SignatureService signatureService;

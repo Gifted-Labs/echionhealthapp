@@ -3,6 +3,7 @@ package com.giftedlabs.echoinhealthbackend.service;
 import com.giftedlabs.echoinhealthbackend.dto.auth.*;
 import com.giftedlabs.echoinhealthbackend.entity.EmailVerificationToken;
 import com.giftedlabs.echoinhealthbackend.entity.Organization;
+import com.giftedlabs.echoinhealthbackend.entity.OrganizationStatus;
 import com.giftedlabs.echoinhealthbackend.entity.RefreshToken;
 import com.giftedlabs.echoinhealthbackend.entity.Role;
 import com.giftedlabs.echoinhealthbackend.entity.SubscriptionTier;
@@ -14,6 +15,7 @@ import com.giftedlabs.echoinhealthbackend.repository.RefreshTokenRepository;
 import com.giftedlabs.echoinhealthbackend.repository.UserRepository;
 import com.giftedlabs.echoinhealthbackend.util.TokenGenerator;
 import com.giftedlabs.echoinhealthbackend.util.EncryptionUtil;
+import com.giftedlabs.echoinhealthbackend.security.ImpersonationContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -55,6 +57,10 @@ public class AuthService {
 
         @Value("${app.base-url}")
         private String baseUrl;
+
+        /** Where the browser front-end is served from; used to build sign-in links in emails. */
+        @Value("${app.frontend-url:}")
+        private String frontendUrl;
 
         @Value("${app.verification-token.expiration-hours}")
         private int verificationTokenExpirationHours;
@@ -105,10 +111,32 @@ public class AuthService {
                 if (!autoVerifyRegistration) {
                         createAndSendVerificationToken(savedUser);
                 }
+
+                // Sent regardless of the verification setting. When verification is auto-skipped
+                // the verification mail is not produced at all, and this used to be the branch
+                // where a newly onboarded hospital received nothing whatsoever.
+                emailService.sendOrganizationOnboardedEmail(
+                                savedUser.getEmail(),
+                                savedUser.getFirstName(),
+                                organization.getHospitalName() != null
+                                                ? organization.getHospitalName()
+                                                : organization.getName(),
+                                frontendLoginUrl(),
+                                organization.getId());
+
                 auditService.logAction(savedUser, "organization_registered",
                                 "Organization registered and first hospital admin provisioned");
 
                 log.info("Organization {} registered with first admin {}", organization.getId(), savedUser.getEmail());
+        }
+
+        /**
+         * Sign-in URL for emails. Falls back to the API base URL when no front-end URL is
+         * configured, which at least gives the recipient a reachable host rather than a dead link.
+         */
+        private String frontendLoginUrl() {
+                String base = frontendUrl != null && !frontendUrl.isBlank() ? frontendUrl : baseUrl;
+                return base.endsWith("/") ? base + "login" : base + "/login";
         }
 
         /**
@@ -215,6 +243,19 @@ public class AuthService {
                                 auditService.logFailedAction(request.getIdentifier(), "login_failed",
                                                 "Account deactivated");
                                 throw new InvalidCredentialsException("Account is deactivated");
+                        }
+
+                        // A suspended tenant blocks every member, whatever the state of their own
+                        // account. Platform staff are exempt: suspending a hospital must never lock
+                        // the operator out of the console they would use to reverse it.
+                        if (user.getOrganization() != null
+                                        && user.getOrganization().getStatus() == OrganizationStatus.SUSPENDED
+                                        && user.getRole() != Role.SUPER_ADMIN
+                                        && user.getRole() != Role.ADMIN) {
+                                auditService.logFailedAction(request.getIdentifier(), "login_failed",
+                                                "Organization suspended");
+                                throw new AccountSuspendedException(
+                                                "Your hospital's account is suspended. Contact Echion Health support.");
                         }
 
                         if (Boolean.TRUE.equals(user.getMfaEnabled())) {
@@ -473,6 +514,9 @@ public class AuthService {
                                 .profileCompleted(user.hasCompletedProfile())
                                 .createdAt(user.getCreatedAt())
                                 .profileUpdatedAt(user.getProfileUpdatedAt())
+                                .impersonating(ImpersonationContext.isImpersonating())
+                                .impersonatedBy(ImpersonationContext.get() != null
+                                                ? ImpersonationContext.get().impersonatorEmail() : null)
                                 .lastLoginAt(user.getLastLoginAt())
                                 .build();
         }

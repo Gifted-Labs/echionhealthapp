@@ -3,10 +3,13 @@ package com.giftedlabs.echoinhealthbackend.service;
 import com.giftedlabs.echoinhealthbackend.dto.admin.*;
 import com.giftedlabs.echoinhealthbackend.entity.Designation;
 import com.giftedlabs.echoinhealthbackend.entity.AuditLog;
+import com.giftedlabs.echoinhealthbackend.entity.Organization;
 import com.giftedlabs.echoinhealthbackend.entity.Role;
 import com.giftedlabs.echoinhealthbackend.entity.User;
+import com.giftedlabs.echoinhealthbackend.exception.AccessDeniedException;
 import com.giftedlabs.echoinhealthbackend.exception.ResourceNotFoundException;
 import com.giftedlabs.echoinhealthbackend.repository.AuditLogRepository;
+import com.giftedlabs.echoinhealthbackend.repository.OrganizationRepository;
 import com.giftedlabs.echoinhealthbackend.repository.ReportRepository;
 import com.giftedlabs.echoinhealthbackend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +42,7 @@ public class AdminService {
 
     private final UserRepository userRepository;
     private final AuditLogRepository auditLogRepository;
+    private final OrganizationRepository organizationRepository;
     private final ReportRepository reportRepository;
     private final AuditService auditService;
     private final PasswordEncoder passwordEncoder;
@@ -137,25 +141,30 @@ public class AdminService {
         requireTenantAdmin(adminUser);
         validateAssignableRole(request.getRole(), adminUser);
 
+        Organization targetOrganization = resolveTargetOrganization(request, adminUser);
+
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new IllegalArgumentException("Email already exists");
         }
         if (request.getUsername() != null && !request.getUsername().isBlank()
-                && userRepository.existsByUsernameAndOrganizationId(request.getUsername(), adminUser.getOrganizationId())) {
+                && userRepository.existsByUsernameAndOrganizationId(request.getUsername(), targetOrganization.getId())) {
             throw new IllegalArgumentException("Username already exists in this organization");
         }
 
-        billingService.assertUserCanBeAdded(adminUser.getOrganization());
+        // Platform staff are not tenant seats, so they must not consume a hospital's plan quota.
+        if (!isPlatformRole(request.getRole())) {
+            billingService.assertUserCanBeAdded(targetOrganization);
+        }
 
         User user = User.builder()
-                .organization(adminUser.getOrganization())
+                .organization(targetOrganization)
                 .email(request.getEmail())
                 .username(blankToNull(request.getUsername()))
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .firstName(request.getFirstName())
                 .lastName(request.getLastName())
                 .phone(request.getPhone())
-                .hospitalName(adminUser.getHospitalName())
+                .hospitalName(targetOrganization.getHospitalName())
                 .department(request.getDepartment())
                 .serviceNumber(request.getServiceNumber())
                 .role(request.getRole())
@@ -169,8 +178,54 @@ public class AdminService {
 
         User savedUser = userRepository.save(user);
         auditService.logAction(adminUser, "admin_user_created",
-                String.format("Created user %s with role %s", savedUser.getEmail(), savedUser.getRole()));
+                String.format("Created user %s with role %s in organization %s",
+                        savedUser.getEmail(), savedUser.getRole(), targetOrganization.getName()));
         return mapToAdminUserResponse(savedUser);
+    }
+
+    /**
+     * Decides which organization a newly created user belongs to.
+     *
+     * <p>A hospital admin can only ever provision inside their own tenant. A platform admin is a
+     * member of the bootstrap platform organization rather than of any hospital, so inheriting the
+     * actor's organization would file every user they create under "Echion Platform" — invisible to
+     * the hospital that needs them, and billed against the platform tenant's own seat cap. Platform
+     * admins therefore name the target tenant explicitly.
+     */
+    private Organization resolveTargetOrganization(CreateUserRequest request, User adminUser) {
+        String requestedOrganizationId = blankToNull(request.getOrganizationId());
+
+        if (!isGlobalAdmin(adminUser)) {
+            if (requestedOrganizationId != null
+                    && !requestedOrganizationId.equals(adminUser.getOrganizationId())) {
+                throw new AccessDeniedException("You can only create users within your own organization");
+            }
+            return requireOrganization(adminUser.getOrganizationId());
+        }
+
+        if (requestedOrganizationId == null) {
+            if (isPlatformRole(request.getRole())) {
+                // Platform staff legitimately live in the acting admin's own platform tenant.
+                return requireOrganization(adminUser.getOrganizationId());
+            }
+            throw new IllegalArgumentException(
+                    "organizationId is required when creating a " + request.getRole()
+                            + " so the user is filed under the correct hospital");
+        }
+
+        return requireOrganization(requestedOrganizationId);
+    }
+
+    private Organization requireOrganization(String organizationId) {
+        if (organizationId == null) {
+            throw new ResourceNotFoundException("Organization not found");
+        }
+        return organizationRepository.findById(organizationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Organization not found: " + organizationId));
+    }
+
+    private boolean isPlatformRole(Role role) {
+        return role == Role.ADMIN || role == Role.SUPER_ADMIN;
     }
 
     /**

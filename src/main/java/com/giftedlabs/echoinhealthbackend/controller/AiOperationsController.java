@@ -8,6 +8,7 @@ import com.giftedlabs.echoinhealthbackend.service.AiUsageReportingService;
 import com.giftedlabs.echoinhealthbackend.service.ai.AiProviderVerificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import com.giftedlabs.echoinhealthbackend.security.RoleGroups;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -24,7 +25,7 @@ import java.util.List;
 @RequestMapping("/admin/ai")
 @RequiredArgsConstructor
 @Tag(name = "AI Operations", description = "AI provider health and usage reporting")
-@PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'ADMIN', 'SUPER_ADMIN')")
+@PreAuthorize(RoleGroups.TENANT_ADMIN)
 public class AiOperationsController {
 
     private final AiProviderVerificationService verificationService;
@@ -32,7 +33,7 @@ public class AiOperationsController {
     private final CurrentUserService currentUserService;
 
     @PostMapping("/verify")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize(RoleGroups.PLATFORM_ADMIN)
     @Operation(summary = "Verify AI providers",
             description = "Performs a real round trip to each configured provider and reports "
                     + "whether it returned parseable structured output. Does not consume AI credits.")

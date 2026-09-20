@@ -1,6 +1,10 @@
 package com.giftedlabs.echoinhealthbackend.repository;
 
 import com.giftedlabs.echoinhealthbackend.entity.Organization;
+import com.giftedlabs.echoinhealthbackend.entity.OrganizationStatus;
+import com.giftedlabs.echoinhealthbackend.entity.SubscriptionTier;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -10,12 +14,50 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
 public interface OrganizationRepository extends JpaRepository<Organization, String> {
 
     Optional<Organization> findByName(String name);
+
+    /**
+     * Tenant list for the platform console, newest first.
+     *
+     * <p>No endpoint returned organizations at all before this, which is why a newly onboarded
+     * hospital appeared nowhere. The id is a final tiebreak so pagination stays stable when several
+     * tenants are created in the same instant.
+     */
+    @Query("""
+            SELECT o FROM Organization o
+             WHERE (:search IS NULL OR :search = ''
+                    OR LOWER(o.name) LIKE LOWER(CONCAT('%', :search, '%'))
+                    OR LOWER(o.hospitalName) LIKE LOWER(CONCAT('%', :search, '%'))
+                    OR LOWER(o.email) LIKE LOWER(CONCAT('%', :search, '%')))
+               AND (:tier IS NULL OR o.subscriptionTier = :tier)
+               AND (:status IS NULL OR o.status = :status)
+             ORDER BY o.createdAt DESC, o.id DESC
+            """)
+    Page<Organization> searchOrganizations(
+            @Param("search") String search,
+            @Param("tier") SubscriptionTier tier,
+            @Param("status") OrganizationStatus status,
+            Pageable pageable);
+
+    long countByStatus(OrganizationStatus status);
+
+    long countByCreatedAtAfter(LocalDateTime after);
+
+    long countBySubscriptionTier(SubscriptionTier tier);
+
+    /** Total AI credits consumed this month across every tenant. */
+    @Query("SELECT COALESCE(SUM(o.aiCreditsUsedThisMonth), 0) FROM Organization o")
+    long sumAiCreditsUsedThisMonth();
+
+    /** Every tenant, for the platform aggregates that must walk plan entitlements. */
+    @Query("SELECT o FROM Organization o ORDER BY o.createdAt DESC, o.id DESC")
+    List<Organization> findAllForAggregation();
 
     /**
      * Serializes tenant quota decisions. Storage usage is computed as a SUM across several
