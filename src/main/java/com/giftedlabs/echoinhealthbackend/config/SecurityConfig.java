@@ -38,16 +38,19 @@ import java.util.List;
 public class SecurityConfig {
 
     /**
-     * Applied when {@code CORS_ALLOWED_ORIGINS} is not set. Development hosts only: a deployment
-     * that leaves this in place is logged as a warning at startup, because a production front-end
-     * served from any other origin fails the preflight and every call it makes comes back as an
-     * unexplained HTTP 403 long before authentication runs.
+     * Applied when {@code CORS_ALLOWED_ORIGINS} is not set. These are a fallback, not the
+     * configuration: a deployment that leaves them in place is logged as a warning at startup,
+     * because a front-end served from any origin not listed here fails the preflight and every
+     * call it makes comes back as an unexplained HTTP 403, long before authentication runs.
      */
     private static final List<String> DEFAULT_ALLOWED_ORIGINS = List.of(
             "http://localhost:3000",
             "http://localhost:4200",
             "http://localhost:8000",
-            "https://echionhealth.com");
+            "https://echionhealth.com",
+            // The deployed API host: Swagger UI is served from it and calls the API from the
+            // browser, so it is an origin in its own right.
+            "https://echionhealthapp-production.up.railway.app");
 
     private final JwtAuthenticationFilter jwtAuthFilter;
     private final UserDetailsService userDetailsService;
