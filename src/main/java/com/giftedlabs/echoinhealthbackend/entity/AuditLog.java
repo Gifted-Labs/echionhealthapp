@@ -63,4 +63,17 @@ public class AuditLog {
 
     @Column(length = 500)
     private String errorMessage; // If action failed
+
+    /**
+     * The super admin behind an impersonated action, when there is one.
+     *
+     * <p>Without this an action taken while impersonating would be attributed solely to the
+     * clinician whose session was borrowed, which makes the audit trail untruthful about who
+     * actually did the thing.
+     */
+    @Column(name = "impersonated_by_user_id", length = 36)
+    private String impersonatedByUserId;
+
+    @Column(name = "impersonated_by_email", length = 255)
+    private String impersonatedByEmail;
 }

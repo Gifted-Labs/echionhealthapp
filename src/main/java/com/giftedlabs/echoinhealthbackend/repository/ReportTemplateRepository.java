@@ -143,4 +143,8 @@ public interface ReportTemplateRepository extends JpaRepository<ReportTemplate, 
             WHERE t.organization.id = :organizationId AND t.blobDeleted = false
             """)
     long sumFileSizeByOrganizationId(@Param("organizationId") String organizationId);
+
+    /** Templates belonging to one tenant. Platform console tenant drill-down. */
+    @org.springframework.data.jpa.repository.Query("SELECT COUNT(t) FROM ReportTemplate t WHERE t.organization.id = :organizationId")
+    long countByOrganizationId(@org.springframework.data.repository.query.Param("organizationId") String organizationId);
 }

@@ -48,6 +48,15 @@ public class CreateUserRequest {
     @Size(max = 100, message = "Service number must not exceed 100 characters")
     private String serviceNumber;
 
+    /**
+     * Organization the new user belongs to. Honoured only for platform admins, who are not
+     * themselves members of the tenant they are provisioning for; a hospital admin sending this
+     * field for any organization other than their own is rejected. Required when a platform admin
+     * creates a tenant-scoped role, because the acting admin's own organization is the bootstrap
+     * platform tenant and would silently be the wrong home for the user.
+     */
+    private String organizationId;
+
     @NotNull(message = "Role is required")
     private Role role;
 

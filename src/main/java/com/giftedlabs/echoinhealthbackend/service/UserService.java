@@ -6,14 +6,21 @@ import com.giftedlabs.echoinhealthbackend.dto.auth.UserProfileResponse;
 import com.giftedlabs.echoinhealthbackend.entity.User;
 import com.giftedlabs.echoinhealthbackend.exception.UserNotFoundException;
 import com.giftedlabs.echoinhealthbackend.repository.UserRepository;
+import com.giftedlabs.echoinhealthbackend.dto.auth.PermissionsResponse;
+import com.giftedlabs.echoinhealthbackend.entity.Role;
+import com.giftedlabs.echoinhealthbackend.security.ImpersonationContext;
+import com.giftedlabs.echoinhealthbackend.security.Permission;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 import static com.giftedlabs.echoinhealthbackend.util.CacheNames.USERS;
 
@@ -27,6 +34,13 @@ import static com.giftedlabs.echoinhealthbackend.util.CacheNames.USERS;
 public class UserService {
 
     private final UserRepository userRepository;
+
+    /**
+     * This bean's own proxy, so cached methods can be reached from inside the class. Obtained
+     * lazily through a provider because injecting the bean into itself eagerly is a circular
+     * dependency.
+     */
+    private final ObjectProvider<UserService> self;
     private final AuditService auditService;
 
     // ========== Read Operations (Cached) ==========
@@ -39,13 +53,54 @@ public class UserService {
      * @return User profile response
      * @throws UserNotFoundException if user not found
      */
-    @Cacheable(value = USERS, key = "#email")
     public UserProfileResponse getUserProfile(String email) {
+        // Through the proxy, not this.getCachedProfile(...): Spring's caching is proxy-based, and
+        // a direct self-call would silently skip the cache entirely.
+        UserProfileResponse cached = self.getObject().getCachedProfile(email);
+
+        // Impersonation is per-request state and must never be written into the shared cache:
+        // one impersonated request would otherwise leave the flag set for every later caller.
+        // The cached instance is copied rather than mutated for the same reason.
+        return cached.toBuilder()
+                .impersonating(ImpersonationContext.isImpersonating())
+                .impersonatedBy(ImpersonationContext.get() != null
+                        ? ImpersonationContext.get().impersonatorEmail() : null)
+                .build();
+    }
+
+    @Cacheable(value = USERS, key = "#email")
+    public UserProfileResponse getCachedProfile(String email) {
         log.debug("Cache miss: fetching user profile for email: {}", email);
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new UserNotFoundException("User not found"));
 
         return mapToProfileResponse(user);
+    }
+
+    /**
+     * Capability keys the user holds, for front-end gating.
+     *
+     * <p>Sonographers are a special case: they may finalise a report only when a hospital admin has
+     * granted them signature permission, so that one capability is resolved per user rather than
+     * from the role alone.
+     */
+    @Transactional(readOnly = true)
+    public PermissionsResponse getPermissions(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new UserNotFoundException("User not found"));
+
+        Set<String> permissions = new LinkedHashSet<>(Permission.forRole(user.getRole()));
+        if (user.getRole() == Role.SONOGRAPHER && Boolean.TRUE.equals(user.getCanUploadSignature())) {
+            permissions.add(Permission.REPORTS_FINALIZE.getKey());
+        }
+
+        return PermissionsResponse.builder()
+                .role(user.getRole())
+                .organizationId(user.getOrganizationId())
+                .organizationName(user.getOrganization() != null ? user.getOrganization().getName() : null)
+                .permissions(permissions)
+                .impersonating(ImpersonationContext.isImpersonating())
+                .build();
     }
 
     // ========== Write Operations (Cache Evicting) ==========

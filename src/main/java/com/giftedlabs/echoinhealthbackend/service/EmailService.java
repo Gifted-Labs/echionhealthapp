@@ -1,99 +1,98 @@
 package com.giftedlabs.echoinhealthbackend.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.giftedlabs.echoinhealthbackend.entity.EmailOutboxEntry;
+import com.giftedlabs.echoinhealthbackend.util.EmailTemplate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 /**
- * Service for sending emails via Resend API
+ * Composes the application's transactional emails and hands them to {@link EmailDeliveryService}.
+ *
+ * <p>Delivery, retries and the outbox record live in that other bean; this one only decides what
+ * each message says.
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class EmailService {
 
-    @Value("${email.resend.api-key}")
-    private String resendApiKey;
+    public static final String TEMPLATE_VERIFICATION = "verification";
+    public static final String TEMPLATE_WELCOME = "welcome";
+    public static final String TEMPLATE_ORGANIZATION_ONBOARDED = "organization_onboarded";
+    public static final String TEMPLATE_DELIVERY_TEST = "delivery_test";
+    public static final String TEMPLATE_BILLING_ALERT = "billing_alert";
+    public static final String TEMPLATE_UPGRADE_REQUEST = "upgrade_request";
 
-    @Value("${email.resend.api-url}")
-    private String resendApiUrl;
+    private static final DateTimeFormatter TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    @Value("${email.from}")
-    private String fromEmail;
-
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
-            .build();
-
-    private final ObjectMapper objectMapper = new ObjectMapper();
-
-    /**
-     * Send email asynchronously
-     * 
-     * @param to          Recipient email address
-     * @param subject     Email subject
-     * @param htmlContent HTML email content
-     */
-    @Async
-    public void sendEmail(String to, String subject, String htmlContent) {
-        try {
-            Map<String, Object> emailData = new HashMap<>();
-            emailData.put("from", fromEmail);
-            emailData.put("to", List.of(to));
-            emailData.put("subject", subject);
-            emailData.put("html", htmlContent);
-
-            String requestBody = objectMapper.writeValueAsString(emailData);
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(resendApiUrl))
-                    .header("Authorization", "Bearer " + resendApiKey)
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                log.info("Email sent successfully to: {}", to);
-            } else {
-                log.error("Failed to send email. Status: {}, Response: {}",
-                        response.statusCode(), response.body());
-            }
-        } catch (Exception e) {
-            log.error("Error sending email to: {}", to, e);
-        }
-    }
+    private final EmailDeliveryService deliveryService;
 
     /**
      * Send verification email
      */
     public void sendVerificationEmail(String to, String firstName, String verificationLink) {
-        String subject = "Verify Your Email - Echoin Health";
-        String htmlContent = com.giftedlabs.echoinhealthbackend.util.EmailTemplate
-                .getVerificationEmail(firstName, verificationLink);
-        sendEmail(to, subject, htmlContent);
+        queueAndSend(to,
+                "Verify Your Email - Echion Health",
+                EmailTemplate.getVerificationEmail(firstName, verificationLink),
+                TEMPLATE_VERIFICATION,
+                null);
     }
 
     /**
      * Send welcome email after verification
      */
     public void sendWelcomeEmail(String to, String firstName) {
-        String subject = "Welcome to Echoin Health!";
-        String htmlContent = com.giftedlabs.echoinhealthbackend.util.EmailTemplate
-                .getWelcomeEmail(firstName);
-        sendEmail(to, subject, htmlContent);
+        queueAndSend(to,
+                "Welcome to Echion Health!",
+                EmailTemplate.getWelcomeEmail(firstName),
+                TEMPLATE_WELCOME,
+                null);
+    }
+
+    /**
+     * Confirms to the first hospital admin that their organization is live.
+     *
+     * <p>Sent on every registration path, including the one where email verification is skipped.
+     * That branch previously sent nothing at all, which is what the client observed as "no email
+     * after onboarding": turning on {@code app.auth.auto-verify-registration} silently removed the
+     * only message a new hospital would ever have received.
+     */
+    public void sendOrganizationOnboardedEmail(String to, String firstName, String hospitalName,
+            String loginLink, String organizationId) {
+        queueAndSend(to,
+                "Your hospital is live on Echion Health",
+                EmailTemplate.getOrganizationOnboardedEmail(firstName, hospitalName, to, loginLink),
+                TEMPLATE_ORGANIZATION_ONBOARDED,
+                organizationId);
+    }
+
+    /**
+     * Sends a probe message and waits for the provider's verdict, so email wiring can be verified
+     * from the platform console instead of by reading logs.
+     */
+    public EmailDeliveryService.DeliveryResult sendDeliveryTest(String to, String triggeredByEmail) {
+        String html = EmailTemplate.getDeliveryTestEmail(triggeredByEmail, LocalDateTime.now().format(TIMESTAMP));
+        EmailOutboxEntry entry = deliveryService.queue(
+                to, "Echion Health delivery test", html, TEMPLATE_DELIVERY_TEST, null);
+        return deliveryService.deliver(entry.getId());
+    }
+
+    /**
+     * Sends a pre-rendered operational message — billing alerts and upgrade requests, whose bodies
+     * are assembled by the billing service rather than from a fixed template.
+     */
+    public void sendOperationalEmail(String to, String subject, String html, String templateName,
+            String organizationId) {
+        queueAndSend(to, subject, html, templateName, organizationId);
+    }
+
+    private void queueAndSend(String to, String subject, String html, String templateName,
+            String organizationId) {
+        EmailOutboxEntry entry = deliveryService.queue(to, subject, html, templateName, organizationId);
+        deliveryService.deliverAsync(entry.getId());
     }
 }

@@ -52,6 +52,15 @@ public class JwtService {
         return claimsResolver.apply(claims);
     }
 
+    /** Claim naming the super admin behind an impersonated session. */
+    public static final String CLAIM_IMPERSONATED_BY_ID = "impersonatedByUserId";
+
+    /** Claim carrying that super admin's email, so audit rows need no extra lookup. */
+    public static final String CLAIM_IMPERSONATED_BY_EMAIL = "impersonatedByEmail";
+
+    /** Unique per impersonation session, so one session can be revoked without affecting others. */
+    public static final String CLAIM_IMPERSONATION_ID = "impersonationId";
+
     /**
      * Generate access token for user
      */
@@ -71,6 +80,45 @@ public class JwtService {
      */
     public String generateRefreshToken(UserDetails userDetails) {
         return buildToken(buildPrincipalClaims(userDetails), userDetails, refreshExpiration);
+    }
+
+    /**
+     * Mints an access token that acts as {@code userDetails} while recording who is really behind
+     * it.
+     *
+     * <p>Deliberately short-lived and issued without a matching refresh token, so an impersonated
+     * session cannot be extended or quietly kept alive. The {@code impersonatedBy} claims travel
+     * with every request made under this token, which is what lets the audit trail name both
+     * identities and the UI show a persistent banner.
+     *
+     * @param userDetails          the user being impersonated
+     * @param impersonatorUserId   id of the super admin
+     * @param impersonatorEmail    email of the super admin
+     * @param ttlMillis            lifetime, capped by the caller
+     */
+    public String generateImpersonationToken(UserDetails userDetails, String impersonatorUserId,
+            String impersonatorEmail, long ttlMillis) {
+        Map<String, Object> claims = buildPrincipalClaims(userDetails);
+        claims.put(CLAIM_IMPERSONATED_BY_ID, impersonatorUserId);
+        claims.put(CLAIM_IMPERSONATED_BY_EMAIL, impersonatorEmail);
+        claims.put(CLAIM_IMPERSONATION_ID, java.util.UUID.randomUUID().toString());
+        return buildToken(claims, userDetails, ttlMillis);
+    }
+
+    public String extractImpersonatedByUserId(String token) {
+        return extractClaim(token, claims -> claims.get(CLAIM_IMPERSONATED_BY_ID, String.class));
+    }
+
+    public String extractImpersonatedByEmail(String token) {
+        return extractClaim(token, claims -> claims.get(CLAIM_IMPERSONATED_BY_EMAIL, String.class));
+    }
+
+    /**
+     * Per-session identifier, so stopping impersonation can revoke exactly this token rather than
+     * every token ever issued for the target user.
+     */
+    public String extractImpersonationId(String token) {
+        return extractClaim(token, claims -> claims.get(CLAIM_IMPERSONATION_ID, String.class));
     }
 
     private Map<String, Object> buildPrincipalClaims(UserDetails userDetails) {

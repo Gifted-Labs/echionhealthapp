@@ -3,6 +3,7 @@ package com.giftedlabs.echoinhealthbackend.service;
 import com.giftedlabs.echoinhealthbackend.entity.AuditLog;
 import com.giftedlabs.echoinhealthbackend.entity.User;
 import com.giftedlabs.echoinhealthbackend.repository.AuditLogRepository;
+import com.giftedlabs.echoinhealthbackend.security.ImpersonationContext;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,10 +36,15 @@ public class AuditService {
                     .success(true)
                     .ipAddress(getClientIpAddress())
                     .userAgent(getUserAgent())
+                    .impersonatedByUserId(impersonatorUserId())
+                    .impersonatedByEmail(impersonatorEmail())
                     .build();
 
             auditLogRepository.save(auditLog);
-            log.info("Audit log created: {} - {}", user.getEmail(), action);
+            log.info("Audit log created: {} - {}{}", user.getEmail(), action,
+                    ImpersonationContext.isImpersonating()
+                            ? " (impersonated by " + impersonatorEmail() + ")"
+                            : "");
         } catch (Exception e) {
             log.error("Failed to create audit log", e);
         }
@@ -56,6 +62,8 @@ public class AuditService {
                     .errorMessage(errorMessage)
                     .ipAddress(getClientIpAddress())
                     .userAgent(getUserAgent())
+                    .impersonatedByUserId(impersonatorUserId())
+                    .impersonatedByEmail(impersonatorEmail())
                     .build();
 
             auditLogRepository.save(auditLog);
@@ -77,12 +85,31 @@ public class AuditService {
                     .success(success)
                     .ipAddress(getClientIpAddress())
                     .userAgent(getUserAgent())
+                    .impersonatedByUserId(impersonatorUserId())
+                    .impersonatedByEmail(impersonatorEmail())
                     .build();
 
             auditLogRepository.save(auditLog);
         } catch (Exception e) {
             log.error("Failed to create audit log", e);
         }
+    }
+
+    /**
+     * The super admin behind the current request, when it is impersonated.
+     *
+     * <p>Read from ambient context rather than passed in, so that every existing call site records
+     * it without modification. An action taken through an impersonated session must never be
+     * attributed to the clinician alone.
+     */
+    private String impersonatorUserId() {
+        ImpersonationContext.Details details = ImpersonationContext.get();
+        return details != null ? details.impersonatorUserId() : null;
+    }
+
+    private String impersonatorEmail() {
+        ImpersonationContext.Details details = ImpersonationContext.get();
+        return details != null ? details.impersonatorEmail() : null;
     }
 
     /**

@@ -85,6 +85,9 @@ public interface UserRepository extends JpaRepository<User, String> {
          */
         long countByEmailVerifiedTrue();
 
+        /** Active users across every tenant, for the platform overview. */
+        long countByActiveTrue();
+
         @Query("SELECT COUNT(u) FROM User u WHERE u.organization.id = :organizationId AND u.emailVerified = true")
         long countByOrganizationIdAndEmailVerifiedTrue(@Param("organizationId") String organizationId);
 
@@ -145,6 +148,66 @@ public interface UserRepository extends JpaRepository<User, String> {
          */
         @Query("SELECT u FROM User u WHERE u.department = :department AND u.organization.id = :organizationId AND u.id != :id")
         List<User> findByDepartmentAndOrganizationIdAndIdNot(@Param("department") String department, @Param("organizationId") String organizationId, @Param("id") String id);
+
+        /**
+         * Active members of an organization other than the given user.
+         *
+         * <p>Recipient list for an organization-wide SonoShare. Ordered and limited by the caller:
+         * an org-wide share on a large tenant must not fan out unbounded notification writes inside
+         * the sharing request.
+         */
+        @Query("""
+                        SELECT u FROM User u
+                         WHERE u.organization.id = :organizationId
+                           AND u.id <> :excludeUserId
+                           AND u.active = TRUE
+                         ORDER BY u.createdAt ASC
+                        """)
+        List<User> findActiveOrganizationMembers(
+                        @Param("organizationId") String organizationId,
+                        @Param("excludeUserId") String excludeUserId,
+                        org.springframework.data.domain.Pageable pageable);
+
+        /**
+         * Active members of one department, other than the given user. Recipient list for a
+         * department-scoped SonoShare.
+         */
+        @Query("""
+                        SELECT u FROM User u
+                         WHERE u.organization.id = :organizationId
+                           AND u.department = :department
+                           AND u.id <> :excludeUserId
+                           AND u.active = TRUE
+                         ORDER BY u.createdAt ASC
+                        """)
+        List<User> findActiveDepartmentMembers(
+                        @Param("organizationId") String organizationId,
+                        @Param("department") String department,
+                        @Param("excludeUserId") String excludeUserId,
+                        org.springframework.data.domain.Pageable pageable);
+
+        /**
+         * Colleagues a user can share with: active members of their own organization, excluding
+         * themselves. Backs the share dialog's recipient picker, which previously had no endpoint
+         * to populate from.
+         */
+        @Query("""
+                        SELECT u FROM User u
+                         WHERE u.organization.id = :organizationId
+                           AND u.id <> :excludeUserId
+                           AND u.active = TRUE
+                           AND (:search IS NULL OR :search = ''
+                                OR LOWER(u.firstName) LIKE LOWER(CONCAT('%', :search, '%'))
+                                OR LOWER(u.lastName) LIKE LOWER(CONCAT('%', :search, '%'))
+                                OR LOWER(u.email) LIKE LOWER(CONCAT('%', :search, '%'))
+                                OR LOWER(u.department) LIKE LOWER(CONCAT('%', :search, '%')))
+                         ORDER BY u.firstName ASC, u.lastName ASC, u.id ASC
+                        """)
+        Page<User> findShareableColleagues(
+                        @Param("organizationId") String organizationId,
+                        @Param("excludeUserId") String excludeUserId,
+                        @Param("search") String search,
+                        org.springframework.data.domain.Pageable pageable);
 
         /**
          * Find users in the same hospital (excluding a specific user)

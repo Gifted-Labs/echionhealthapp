@@ -6,12 +6,16 @@ import com.giftedlabs.echoinhealthbackend.dto.common.ApiResponse;
 import com.giftedlabs.echoinhealthbackend.entity.SharingLevel;
 import com.giftedlabs.echoinhealthbackend.entity.UrgencyLevel;
 import com.giftedlabs.echoinhealthbackend.entity.User;
+import com.giftedlabs.echoinhealthbackend.exception.AccessDeniedException;
+import com.giftedlabs.echoinhealthbackend.service.StreamTokenService;
+import com.giftedlabs.echoinhealthbackend.util.EnumParser;
 import com.giftedlabs.echoinhealthbackend.security.CurrentUserService;
 import com.giftedlabs.echoinhealthbackend.service.CollaborationService;
 import com.giftedlabs.echoinhealthbackend.service.NotificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import com.giftedlabs.echoinhealthbackend.security.RoleGroups;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -33,12 +37,13 @@ import java.util.List;
 @RequestMapping("/collaboration")
 @RequiredArgsConstructor
 @Tag(name = "Collaboration", description = "SonoShare - Scan/Image sharing and collaboration APIs")
-@PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SONOGRAPHER', 'RADIOLOGIST', 'PHYSICIAN', 'ADMIN', 'SUPER_ADMIN')")
+@PreAuthorize(RoleGroups.CLINICAL)
 public class CollaborationController {
 
         private final CollaborationService collaborationService;
         private final NotificationService notificationService;
         private final CurrentUserService currentUserService;
+        private final StreamTokenService streamTokenService;
 
         // ========== Share Scan/Image ==========
 
@@ -61,30 +66,39 @@ public class CollaborationController {
         }
 
         /**
-         * Share an image with optional report (multipart request)
+         * Share an image with optional report (multipart request).
+         *
+         * <p>Text fields bind with {@code @RequestParam}, not {@code @RequestPart}.
+         *
+         * <p>{@code @RequestPart} resolves a part through an HttpMessageConverter, so a
+         * {@code List<String>} required the browser to send one part carrying
+         * {@code Content-Type: application/json}. Browsers appending repeated {@code colleagueIds}
+         * fields to a FormData — the ordinary way to submit a multi-select — did not satisfy that
+         * and the request failed at binding, which is why sharing an image with named colleagues
+         * was broken. {@code @RequestParam} binds repeated form fields to a List natively.
          */
         @PostMapping(value = "/share-with-image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
         @Operation(summary = "Share with image", description = "Share an image (and optionally a report) for peer review")
         public ResponseEntity<ApiResponse<SharedScanResponse>> shareWithImage(
                         @RequestPart(value = "image") MultipartFile imageFile,
-                        @RequestPart(value = "reportId", required = false) String reportId,
-                        @RequestPart(value = "sharingLevel") String sharingLevel,
-                        @RequestPart(value = "colleagueIds", required = false) List<String> colleagueIds,
-                        @RequestPart(value = "title", required = false) String title,
-                        @RequestPart(value = "requestMessage", required = false) String requestMessage,
-                        @RequestPart(value = "urgency", required = false) String urgency,
-                        @RequestPart(value = "department", required = false) String department,
+                        @RequestParam(value = "reportId", required = false) String reportId,
+                        @RequestParam(value = "sharingLevel") String sharingLevel,
+                        @RequestParam(value = "colleagueIds", required = false) List<String> colleagueIds,
+                        @RequestParam(value = "title", required = false) String title,
+                        @RequestParam(value = "requestMessage", required = false) String requestMessage,
+                        @RequestParam(value = "urgency", required = false) String urgency,
+                        @RequestParam(value = "department", required = false) String department,
                         Authentication authentication) {
 
                 User user = getUser(authentication);
 
                 ShareScanRequest request = ShareScanRequest.builder()
                                 .reportId(reportId)
-                                .sharingLevel(SharingLevel.valueOf(sharingLevel.toUpperCase()))
-                                .colleagueIds(colleagueIds)
+                                .sharingLevel(EnumParser.parse(SharingLevel.class, sharingLevel, "sharingLevel"))
+                                .colleagueIds(splitColleagueIds(colleagueIds))
                                 .title(title)
                                 .requestMessage(requestMessage)
-                                .urgency(urgency != null ? UrgencyLevel.valueOf(urgency.toUpperCase()) : null)
+                                .urgency(EnumParser.parseOptional(UrgencyLevel.class, urgency, "urgency"))
                                 .department(department)
                                 .build();
 
@@ -93,6 +107,24 @@ public class CollaborationController {
                                 .success(true)
                                 .message("Image shared successfully")
                                 .data(response)
+                                .build());
+        }
+
+        // ========== Recipients ==========
+
+        @GetMapping("/colleagues")
+        @Operation(summary = "List shareable colleagues", description = "Active colleagues in your organization who can receive a shared scan")
+        public ResponseEntity<ApiResponse<Page<ShareableColleagueResponse>>> getShareableColleagues(
+                        @RequestParam(required = false) String search,
+                        Pageable pageable,
+                        Authentication authentication) {
+
+                User user = getUser(authentication);
+                Page<ShareableColleagueResponse> colleagues =
+                                collaborationService.getShareableColleagues(user, search, pageable);
+                return ResponseEntity.ok(ApiResponse.<Page<ShareableColleagueResponse>>builder()
+                                .success(true)
+                                .data(colleagues)
                                 .build());
         }
 
@@ -204,11 +236,49 @@ public class CollaborationController {
 
         // ========== Notifications ==========
 
-        @GetMapping(path = "/notifications/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-        @Operation(summary = "Subscribe to notifications", description = "Subscribe to real-time notifications via SSE")
-        public SseEmitter subscribeToNotifications(Authentication authentication) {
+        @PostMapping("/notifications/stream-token")
+        @Operation(summary = "Mint a stream token", description = "Issue a single-use, one-minute token for opening the notification stream")
+        public ResponseEntity<ApiResponse<StreamTokenResponse>> issueStreamToken(Authentication authentication) {
                 User user = getUser(authentication);
-                return notificationService.subscribe(user.getId());
+                String token = streamTokenService.issue(user.getId());
+
+                return ResponseEntity.ok(ApiResponse.<StreamTokenResponse>builder()
+                                .success(true)
+                                .data(StreamTokenResponse.builder()
+                                                .token(token)
+                                                .expiresInSeconds(60)
+                                                .streamUrl("/api/collaboration/notifications/stream?token=" + token)
+                                                .build())
+                                .build());
+        }
+
+        /**
+         * Opens the notification stream.
+         *
+         * <p>Accepts a single-use {@code token} query parameter as well as the usual bearer header,
+         * because the browser's {@code EventSource} cannot set headers. Without it the front-end
+         * could never open this stream at all — the connection was rejected before it began.
+         */
+        @GetMapping(path = "/notifications/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+        @PreAuthorize("permitAll()")
+        @Operation(summary = "Subscribe to notifications", description = "Subscribe to real-time notifications via SSE")
+        public SseEmitter subscribeToNotifications(
+                        @RequestParam(value = "token", required = false) String streamToken,
+                        Authentication authentication) {
+
+                if (streamToken != null && !streamToken.isBlank()) {
+                        String userId = streamTokenService.redeem(streamToken);
+                        if (userId == null) {
+                                throw new AccessDeniedException("Stream token is invalid or has expired");
+                        }
+                        return notificationService.subscribe(userId);
+                }
+
+                if (authentication == null) {
+                        throw new AccessDeniedException(
+                                        "Provide a bearer token, or mint a stream token via POST /collaboration/notifications/stream-token");
+                }
+                return notificationService.subscribe(getUser(authentication).getId());
         }
 
         @GetMapping("/notifications")
@@ -284,5 +354,25 @@ public class CollaborationController {
 
         private User getUser(Authentication authentication) {
                 return currentUserService.requireUser(authentication);
+        }
+
+        /**
+         * Accepts either repeated {@code colleagueIds} fields or a single comma-separated value.
+         *
+         * <p>Both shapes are common in browser FormData submissions and the distinction is not one
+         * a caller should have to know about.
+         */
+        private List<String> splitColleagueIds(List<String> rawValues) {
+                if (rawValues == null || rawValues.isEmpty()) {
+                        return List.of();
+                }
+
+                return rawValues.stream()
+                                .filter(value -> value != null && !value.isBlank())
+                                .flatMap(value -> java.util.Arrays.stream(value.split(",")))
+                                .map(String::trim)
+                                .filter(value -> !value.isEmpty())
+                                .distinct()
+                                .toList();
         }
 }

@@ -21,11 +21,20 @@ public interface ReportRepository extends JpaRepository<Report, String> {
     // Find favorite reports
     List<Report> findByUserIdAndOrganizationIdAndIsFavoriteTrue(String userId, String organizationId);
 
-    // Find recent reports
-    List<Report> findTop10ByUserIdAndOrganizationIdOrderByCreatedAtDesc(String userId, String organizationId);
+    /**
+     * Recent reports, newest first. The id is a tiebreak rather than decoration: a batch upload
+     * commits many rows in one transaction with effectively identical timestamps, and without a
+     * unique final sort key PostgreSQL is free to return tied rows in a different order on each
+     * call. A list that silently reshuffles is what "a different report opens" looks like from the
+     * UI.
+     */
+    List<Report> findTop10ByUserIdAndOrganizationIdOrderByCreatedAtDescIdDesc(String userId, String organizationId);
 
     @Query("SELECT COALESCE(SUM(r.fileSize), 0) FROM Report r WHERE r.organization.id = :organizationId")
     long sumFileSizeByOrganizationId(@Param("organizationId") String organizationId);
+
+    /** Reports created since a moment, across every tenant. Platform overview volume metric. */
+    long countByCreatedAtAfter(java.time.LocalDateTime since);
 
     /**
      * Optimized full-text search with ILIKE fallback on extracted_text.
@@ -62,7 +71,8 @@ public interface ReportRepository extends JpaRepository<Report, String> {
                 CASE WHEN :query IS NOT NULL AND :query != '' AND r.extracted_text ILIKE CONCAT('%', :query, '%')
                      THEN 1 ELSE 0 END DESC,
                 r.scan_date DESC NULLS LAST,
-                r.created_at DESC
+                r.created_at DESC,
+                r.id DESC
             """, countQuery = """
             SELECT count(*) FROM reports r
             WHERE r.user_id = :userId

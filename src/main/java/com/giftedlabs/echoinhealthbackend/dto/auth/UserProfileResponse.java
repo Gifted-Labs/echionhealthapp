@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
  * Excludes sensitive information like password hash.
  */
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 public class UserProfileResponse {
@@ -40,4 +40,15 @@ public class UserProfileResponse {
     private LocalDateTime createdAt;
     private LocalDateTime profileUpdatedAt;
     private LocalDateTime lastLoginAt;
+
+    /**
+     * True when this session was opened by a super admin acting as this user. The UI shows a
+     * persistent banner and an exit control on the strength of it, so nobody mistakes a borrowed
+     * session for their own.
+     */
+    @Builder.Default
+    private Boolean impersonating = false;
+
+    /** Email of the super admin behind an impersonated session; null otherwise. */
+    private String impersonatedBy;
 }

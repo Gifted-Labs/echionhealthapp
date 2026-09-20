@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import com.giftedlabs.echoinhealthbackend.security.RoleGroups;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -106,7 +107,7 @@ public class AuthController {
      * Get current user profile
      */
     @GetMapping("/profile")
-    @PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SONOGRAPHER', 'RADIOLOGIST', 'PHYSICIAN', 'ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize(RoleGroups.CLINICAL)
     @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Get user profile", description = "Get current authenticated user's profile")
     public ResponseEntity<ApiResponse<UserProfileResponse>> getProfile(Authentication authentication) {
@@ -116,10 +117,27 @@ public class AuthController {
     }
 
     /**
+     * What the signed-in user is allowed to do.
+     *
+     * <p>Lets the front-end hide controls a user cannot use rather than discovering it by calling
+     * an endpoint and receiving a 403. Available to every authenticated role — a user asking what
+     * they themselves may do is never a privileged question.
+     */
+    @GetMapping("/permissions")
+    @PreAuthorize("isAuthenticated()")
+    @SecurityRequirement(name = "Bearer Authentication")
+    @Operation(summary = "Get my permissions",
+            description = "Capability keys held by the signed-in user, for UI gating")
+    public ResponseEntity<ApiResponse<PermissionsResponse>> getPermissions(Authentication authentication) {
+        return ResponseEntity.ok(ApiResponse.success(
+                userService.getPermissions(authentication.getName())));
+    }
+
+    /**
      * Complete user profile with professional details
      */
     @PostMapping("/complete-profile")
-    @PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SONOGRAPHER', 'RADIOLOGIST', 'PHYSICIAN', 'ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize(RoleGroups.CLINICAL)
     @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Complete profile", description = "Add professional details (phone, hospital, department, serviceNumber)")
     public ResponseEntity<ApiResponse<UserProfileResponse>> completeProfile(
@@ -136,7 +154,7 @@ public class AuthController {
      * Update user profile
      */
     @PatchMapping("/profile")
-    @PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SONOGRAPHER', 'RADIOLOGIST', 'PHYSICIAN', 'ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize(RoleGroups.CLINICAL)
     @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Update profile", description = "Update any profile fields (partial update)")
     public ResponseEntity<ApiResponse<UserProfileResponse>> updateProfile(
@@ -150,7 +168,7 @@ public class AuthController {
     }
 
     @GetMapping("/mfa")
-    @PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SONOGRAPHER', 'RADIOLOGIST', 'PHYSICIAN', 'ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize(RoleGroups.CLINICAL)
     @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Get MFA status", description = "Check whether TOTP MFA is enabled for the current user")
     public ResponseEntity<ApiResponse<MfaStatusResponse>> getMfaStatus(Authentication authentication) {
@@ -158,7 +176,7 @@ public class AuthController {
     }
 
     @PostMapping("/mfa/setup")
-    @PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SONOGRAPHER', 'RADIOLOGIST', 'PHYSICIAN', 'ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize(RoleGroups.CLINICAL)
     @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Begin MFA setup", description = "Generate a TOTP secret and otpauth URL for an authenticator app")
     public ResponseEntity<ApiResponse<MfaSetupResponse>> beginMfaSetup(Authentication authentication) {
@@ -168,7 +186,7 @@ public class AuthController {
     }
 
     @PostMapping("/mfa/enable")
-    @PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SONOGRAPHER', 'RADIOLOGIST', 'PHYSICIAN', 'ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize(RoleGroups.CLINICAL)
     @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Enable MFA", description = "Verify a TOTP code and enable MFA for the current user")
     public ResponseEntity<ApiResponse<MfaStatusResponse>> enableMfa(
@@ -180,7 +198,7 @@ public class AuthController {
     }
 
     @PostMapping("/mfa/disable")
-    @PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'SONOGRAPHER', 'RADIOLOGIST', 'PHYSICIAN', 'ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize(RoleGroups.CLINICAL)
     @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Disable MFA", description = "Verify a TOTP code and disable MFA for the current user")
     public ResponseEntity<ApiResponse<MfaStatusResponse>> disableMfa(

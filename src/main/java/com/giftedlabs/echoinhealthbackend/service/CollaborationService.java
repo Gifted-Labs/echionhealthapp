@@ -9,7 +9,7 @@ import com.giftedlabs.echoinhealthbackend.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,6 +44,16 @@ public class CollaborationService {
     private final AuditLogRepository auditLogRepository;
     private final BillingService billingService;
     private final FileValidationService fileValidationService;
+
+    /** Sharing levels that make a scan visible to the whole tenant. */
+    private static final java.util.Set<SharingLevel> ORGANIZATION_WIDE_LEVELS =
+            EnumSet.of(SharingLevel.EVERYONE, SharingLevel.ORGANIZATION_WIDE);
+
+    /**
+     * Ceiling on notification rows written for a single share. An organization-wide share on a
+     * large tenant must not turn one request into thousands of synchronous writes.
+     */
+    private static final int MAX_NOTIFICATION_FAN_OUT = 500;
 
     // ========== Share Scan/Image ==========
 
@@ -109,29 +119,11 @@ public class CollaborationService {
         sharedScan = sharedScanRepository.save(sharedScan);
 
         // Handle access based on sharing level
-        List<User> recipients = new ArrayList<>();
+        List<User> recipients = resolveRecipients(request, sharedScan, owner);
 
-        if (request.getSharingLevel() == SharingLevel.SPECIFIC_COLLEAGUES) {
-            if (request.getColleagueIds() == null || request.getColleagueIds().isEmpty()) {
-                throw new IllegalArgumentException("Colleague IDs required for SPECIFIC_COLLEAGUES sharing");
-            }
-
-            for (String colleagueId : request.getColleagueIds()) {
-                User colleague = userRepository.findByIdAndOrganizationId(colleagueId, owner.getOrganizationId())
-                        .orElseThrow(() -> new ResourceNotFoundException("Colleague not found: " + colleagueId));
-
-                SharedScanAccess access = SharedScanAccess.builder()
-                        .organization(owner.getOrganization())
-                        .sharedScan(sharedScan)
-                        .user(colleague)
-                        .build();
-                accessRepository.save(access);
-                recipients.add(colleague);
-            }
-        }
-        // For org-wide sharing, no access records needed - all org users can access
-
-        // Send notifications to recipients (only for SPECIFIC_COLLEAGUES)
+        // Notify everyone the share reached. Department and organization-wide shares previously
+        // notified nobody: the recipient list was only ever populated in the SPECIFIC_COLLEAGUES
+        // branch, so those shares landed silently and were found only by chance.
         for (User recipient : recipients) {
             notificationService.createNotification(
                     recipient,
@@ -150,10 +142,95 @@ public class CollaborationService {
         auditService.logAction(owner, "scan_shared",
                 String.format("Shared scan %s with level %s [sharedScanId=%s]", shareType, request.getSharingLevel(), sharedScan.getId()));
 
-        log.info("User {} shared {} with level {}, {} specific recipients",
+        log.info("User {} shared {} with level {}, notifying {} recipients",
                 owner.getEmail(), shareType, request.getSharingLevel(), recipients.size());
 
         return mapToResponse(sharedScan);
+    }
+
+    /**
+     * Works out who a share reaches, and records explicit access grants where the sharing level
+     * calls for them.
+     *
+     * <p>Only {@code SPECIFIC_COLLEAGUES} needs {@link SharedScanAccess} rows; the other levels are
+     * evaluated against organization and department membership at read time. All of them
+     * nonetheless produce a recipient list, because everyone a share reaches should be told about
+     * it.
+     *
+     * <p>Fan-out is capped. An organization-wide share on a large tenant would otherwise write one
+     * notification row per member synchronously inside the sharing request.
+     */
+    private List<User> resolveRecipients(ShareScanRequest request, SharedScan sharedScan, User owner) {
+        Pageable fanOutLimit = PageRequest.of(0, MAX_NOTIFICATION_FAN_OUT);
+
+        return switch (request.getSharingLevel()) {
+            case SPECIFIC_COLLEAGUES -> grantExplicitAccess(request, sharedScan, owner);
+            case DEPARTMENT -> {
+                String department = blankToNull(request.getDepartment());
+                if (department == null) {
+                    throw new IllegalArgumentException(
+                            "A department is required when sharing with SharingLevel DEPARTMENT");
+                }
+                yield userRepository.findActiveDepartmentMembers(
+                        owner.getOrganizationId(), department, owner.getId(), fanOutLimit);
+            }
+            case EVERYONE, ORGANIZATION_WIDE -> userRepository.findActiveOrganizationMembers(
+                    owner.getOrganizationId(), owner.getId(), fanOutLimit);
+        };
+    }
+
+    private List<User> grantExplicitAccess(ShareScanRequest request, SharedScan sharedScan, User owner) {
+        if (request.getColleagueIds() == null || request.getColleagueIds().isEmpty()) {
+            throw new IllegalArgumentException("Colleague IDs required for SPECIFIC_COLLEAGUES sharing");
+        }
+
+        List<User> recipients = new ArrayList<>();
+        for (String colleagueId : request.getColleagueIds().stream().distinct().toList()) {
+            User colleague = userRepository.findByIdAndOrganizationId(colleagueId, owner.getOrganizationId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Colleague not found: " + colleagueId));
+
+            if (colleague.getId().equals(owner.getId())) {
+                // Sharing with yourself is a no-op, not an error worth failing the whole request.
+                continue;
+            }
+
+            accessRepository.save(SharedScanAccess.builder()
+                    .organization(owner.getOrganization())
+                    .sharedScan(sharedScan)
+                    .user(colleague)
+                    .build());
+            recipients.add(colleague);
+        }
+
+        if (recipients.isEmpty()) {
+            throw new IllegalArgumentException("Select at least one colleague other than yourself");
+        }
+        return recipients;
+    }
+
+    /**
+     * Colleagues the given user can share with. Backs the share dialog's recipient picker, which
+     * had no endpoint to populate from — leaving the front-end unable to offer a list of names.
+     */
+    @Transactional(readOnly = true)
+    public Page<ShareableColleagueResponse> getShareableColleagues(User user, String search, Pageable pageable) {
+        return userRepository.findShareableColleagues(
+                        user.getOrganizationId(),
+                        user.getId(),
+                        blankToNull(search),
+                        pageable)
+                .map(colleague -> ShareableColleagueResponse.builder()
+                        .id(colleague.getId())
+                        .fullName(colleague.getFullName())
+                        .email(colleague.getEmail())
+                        .role(colleague.getRole())
+                        .department(colleague.getDepartment())
+                        .designation(colleague.getDesignation())
+                        .build());
+    }
+
+    private String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     /**
@@ -171,41 +248,17 @@ public class CollaborationService {
      */
     @Transactional(readOnly = true)
     public Page<SharedScanResponse> getScansSharedWithMe(User user, Pageable pageable) {
-        List<SharedScanResponse> allSharedScans = new ArrayList<>();
-
-        // Get directly shared (SPECIFIC_COLLEAGUES)
-        Page<SharedScan> directlyShared = sharedScanRepository.findSharedWithUser(
-                user.getId(),
-                user.getOrganizationId(),
-                pageable);
-        allSharedScans.addAll(directlyShared.map(this::mapToResponse).getContent());
-
-        // Get EVERYONE shares (excluding own shares)
-        Page<SharedScan> everyoneShared = sharedScanRepository.findByOrganizationWideSharing(
-                EnumSet.of(SharingLevel.EVERYONE, SharingLevel.ORGANIZATION_WIDE),
-                user.getOrganizationId(),
-                user.getId(),
-                pageable);
-        allSharedScans.addAll(everyoneShared.map(this::mapToResponse).getContent());
-
-        // Get DEPARTMENT shares
-        if (user.getDepartment() != null && !user.getDepartment().isEmpty()) {
-            Page<SharedScan> departmentShared = sharedScanRepository.findByDepartmentSharing(
-                    SharingLevel.DEPARTMENT,
-                    user.getDepartment(),
-                    user.getOrganizationId(),
-                    user.getId(),
-                    pageable);
-            allSharedScans.addAll(departmentShared.map(this::mapToResponse).getContent());
-        }
-
-        // Remove duplicates and sort by created date
-        List<SharedScanResponse> uniqueScans = allSharedScans.stream()
-                .distinct()
-                .sorted((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()))
-                .collect(Collectors.toList());
-
-        return new PageImpl<>(uniqueScans, pageable, uniqueScans.size());
+        // One query covering all three visibility routes, so the database computes the page and
+        // the total together. Merging three separately-paginated queries in memory reported a
+        // total equal to the merged slice and made items reappear on, or vanish between, pages.
+        return sharedScanRepository.findVisibleToUser(
+                        user.getId(),
+                        user.getOrganizationId(),
+                        blankToNull(user.getDepartment()),
+                        ORGANIZATION_WIDE_LEVELS,
+                        SharingLevel.DEPARTMENT,
+                        pageable)
+                .map(this::mapToResponse);
     }
 
     /**

@@ -12,6 +12,7 @@ import com.giftedlabs.echoinhealthbackend.service.BillingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import com.giftedlabs.echoinhealthbackend.security.RoleGroups;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -36,7 +37,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/billing")
 @RequiredArgsConstructor
 @Tag(name = "Billing", description = "Subscription tiers, add-ons, and usage APIs")
-@PreAuthorize("hasAnyRole('HOSPITAL_ADMIN', 'ADMIN', 'SUPER_ADMIN')")
+@PreAuthorize(RoleGroups.TENANT_ADMIN)
 public class BillingController {
 
     private final BillingService billingService;
@@ -72,7 +73,7 @@ public class BillingController {
     }
 
     @PostMapping("/upgrade")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize(RoleGroups.SUPER_ADMIN)
     @Operation(summary = "Change an organization's tier (platform operators only)",
             description = "Grants a subscription tier. Rejects downgrades that would leave the "
                     + "organization over the target plan's user or storage limits.")
@@ -86,7 +87,7 @@ public class BillingController {
     }
 
     @PostMapping("/addons")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize(RoleGroups.SUPER_ADMIN)
     @Operation(summary = "Apply add-ons (platform operators only)",
             description = "Grants extra storage, extra AI credits, or the Lite EMR integration.")
     public ResponseEntity<ApiResponse<BillingPlanResponse>> applyAddons(
