@@ -70,8 +70,11 @@ cors:
 email:
   from: ${EMAIL_FROM:noreply@echionhealth.com}
   # Domain verified with the email provider. The sender address above must belong to it, or the
-  # provider rejects every send. Left blank, the startup check degrades to a warning.
-  verified-domain: ${EMAIL_VERIFIED_DOMAIN:}
+  # provider rejects every send and — before the outbox existed — did so invisibly. Defaulted to
+  # the product's own verified domain so the startup check is active everywhere rather than
+  # opt-in; override the variable to use a different sender in local development, or set it empty
+  # to downgrade the check to a warning.
+  verified-domain: ${EMAIL_VERIFIED_DOMAIN:echionhealth.com}
   resend:
     api-key: ${RESEND_API_KEY}
     api-url: https://api.resend.com/emails
