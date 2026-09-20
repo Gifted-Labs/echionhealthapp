@@ -254,16 +254,20 @@ jobs:
           # Required when authenticating with an account token, which is not scoped to a project.
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID || secrets.RAILWAY_PROJECT_ID }}
         run: |
-          set -o pipefail
-
           args=(--service "$RAILWAY_SERVICE" --detach)
           if [ -n "$RAILWAY_PROJECT_ID" ]; then
             args+=(--project "$RAILWAY_PROJECT_ID")
           fi
 
           echo "Deploying service '$RAILWAY_SERVICE'"
+
+          # errexit is on by default for workflow shells, which would abort at the failing
+          # pipeline below and skip the diagnostics that explain it. Suspended just long enough
+          # to capture the CLI's real exit status from PIPESTATUS, ahead of the `tee`.
+          set +e
           railway up "${args[@]}" 2>&1 | tee /tmp/deploy.txt
           status=${PIPESTATUS[0]}
+          set -e
 
           # The CLI can report a rejected credential on stdout while still exiting 0, so the
           # output is checked as well as the exit code.
