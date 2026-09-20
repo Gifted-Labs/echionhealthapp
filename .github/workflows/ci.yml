@@ -210,18 +210,62 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pin-able. @railway/cli 5.3.0 regressed `railway up` in CI, failing with "Not signed in"
+      # even when handed a valid project token. If a future release breaks this job again, set
+      # the RAILWAY_CLI_VERSION repository variable to a known-good version rather than editing
+      # this file under time pressure.
       - name: Install Railway CLI
-        run: npm install -g @railway/cli
+        run: npm install -g "@railway/cli@${{ vars.RAILWAY_CLI_VERSION || 'latest' }}"
+
+      # Authentication is checked before deploying, because `railway up` reports an unusable
+      # token and an unknown service with messages that look alike. Knowing which one failed is
+      # the difference between a two-minute fix and an afternoon.
+      - name: Verify Railway credentials
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ] && [ -z "$RAILWAY_API_TOKEN" ]; then
+            echo "::error::No Railway credentials. Set RAILWAY_TOKEN (a *project* token) under" \
+                 "Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+          if ! railway whoami 2>&1 | tee /tmp/whoami.txt; then
+            echo "::error::Railway rejected the credentials. The most common cause is token type:" \
+                 "RAILWAY_TOKEN accepts a PROJECT token only. A token created under Account" \
+                 "Settings > Tokens is an ACCOUNT token and is rejected here - create one under" \
+                 "Project Settings > Tokens instead, or supply it as RAILWAY_API_TOKEN."
+            cat /tmp/whoami.txt
+            exit 1
+          fi
 
       - name: Deploy
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          # Accepted as either a variable or a secret. A service name is not a credential, but it
+          # has been configured as a secret here before, and reading only `vars` silently fell
+          # back to the default and deployed to a service name that may not exist.
+          RAILWAY_SERVICE: ${{ vars.RAILWAY_SERVICE || secrets.RAILWAY_SERVICE || 'echionhealthapp' }}
+          # Required when authenticating with an account token, which is not scoped to a project.
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID || secrets.RAILWAY_PROJECT_ID }}
         run: |
-          if [ -z "$RAILWAY_TOKEN" ]; then
-            echo "::error::RAILWAY_TOKEN is not set. Add it under Settings > Secrets > Actions."
+          set -o pipefail
+
+          args=(--service "$RAILWAY_SERVICE" --detach)
+          if [ -n "$RAILWAY_PROJECT_ID" ]; then
+            args+=(--project "$RAILWAY_PROJECT_ID")
+          fi
+
+          echo "Deploying service '$RAILWAY_SERVICE'"
+          if ! railway up "${args[@]}" 2>&1 | tee /tmp/deploy.txt; then
+            if grep -qi "service" /tmp/deploy.txt && grep -qi "not found\|does not exist" /tmp/deploy.txt; then
+              echo "::error::Railway has no service named '$RAILWAY_SERVICE' in this project." \
+                   "Set the RAILWAY_SERVICE variable to the name shown in the Railway dashboard."
+            fi
             exit 1
           fi
-          railway up --service "${{ vars.RAILWAY_SERVICE || 'echionhealthapp' }}" --detach
 
       - name: Deployment summary
         run: |

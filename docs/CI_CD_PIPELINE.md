@@ -75,7 +75,18 @@ Run locally:
 
 | Secret | Where to get it |
 |---|---|
-| `RAILWAY_TOKEN` | Railway dashboard → Account Settings → Tokens |
+| `RAILWAY_TOKEN` | Railway dashboard → **your project** → Settings → Tokens |
+
+> **⚠️ It must be a _project_ token, not an account token.** The Railway CLI accepts only a
+> project-scoped token in `RAILWAY_TOKEN`. A token generated under *Account Settings → Tokens* is
+> an account token, and `railway up` rejects it with `Invalid RAILWAY_TOKEN. Please check that it
+> is valid and has access to the resource you're trying to use.` — which reads like the token is
+> expired rather than the wrong kind. This page previously pointed at Account Settings, and that
+> is exactly the deploy failure it produced.
+>
+> If you would rather use an account or workspace token, set it as `RAILWAY_API_TOKEN` instead and
+> also set `RAILWAY_PROJECT_ID`, since an account token is not scoped to a project. The deploy job
+> accepts either.
 
 `GITHUB_TOKEN` is provided automatically; nothing to add.
 
@@ -86,6 +97,12 @@ Run locally:
 | Variable | Value |
 |---|---|
 | `RAILWAY_SERVICE` | Your Railway service name (defaults to `echionhealthapp` if unset) |
+| `RAILWAY_PROJECT_ID` | Only needed when authenticating with `RAILWAY_API_TOKEN` |
+| `RAILWAY_CLI_VERSION` | Optional. Pin the CLI if a release breaks the deploy; defaults to `latest` |
+
+`RAILWAY_SERVICE` may be set as either a variable or a secret — the deploy job reads both. It is
+not a credential, but it has been configured as a secret here, and a job that read only `vars`
+would silently fall back to the default and deploy to a service name that may not exist.
 
 ### 3. Branch protection
 
