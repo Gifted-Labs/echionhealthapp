@@ -30,6 +30,13 @@ import static com.giftedlabs.echoinhealthbackend.util.CacheNames.*;
 @EnableCaching(proxyTargetClass = true)
 public class CacheConfig {
 
+    /**
+     * Terminology lookups. Shared across tenants on purpose — a clinical definition is not
+     * tenant data, and caching it per organization would multiply provider cost by tenant count
+     * for an identical answer.
+     */
+    public static final String AI_TERMINOLOGY = "aiTerminology";
+
     @Bean
     @Primary
     public CacheManager cacheManager() {
@@ -40,6 +47,7 @@ public class CacheConfig {
         cacheManager.registerCustomCache(TEMPLATES, templatesCacheBuilder().build());
         cacheManager.registerCustomCache(DASHBOARD_STATS, dashboardStatsCacheBuilder().build());
         cacheManager.registerCustomCache(NOTIFICATION_COUNTS, notificationCountsCacheBuilder().build());
+        cacheManager.registerCustomCache(AI_TERMINOLOGY, aiTerminologyCacheBuilder().build());
         return cacheManager;
     }
 
@@ -105,6 +113,19 @@ public class CacheConfig {
         return Caffeine.newBuilder()
                 .expireAfterWrite(1, TimeUnit.MINUTES)
                 .maximumSize(1000)
+                .recordStats();
+    }
+
+    /**
+     * Long TTL and a large ceiling, because this cache is what keeps terminology lookup
+     * affordable. Autocomplete repeats the same few hundred terms endlessly; a 24-hour entry
+     * turns that into one provider call per term per day across the whole platform. Clinical
+     * terminology does not change on a timescale that makes a shorter TTL worth the cost.
+     */
+    private Caffeine<Object, Object> aiTerminologyCacheBuilder() {
+        return Caffeine.newBuilder()
+                .expireAfterWrite(24, TimeUnit.HOURS)
+                .maximumSize(5_000)
                 .recordStats();
     }
 }

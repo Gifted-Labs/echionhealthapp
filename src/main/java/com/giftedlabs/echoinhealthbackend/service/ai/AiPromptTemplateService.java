@@ -69,6 +69,23 @@ public class AiPromptTemplateService {
         return loadTemplate("grammar-check", null, null).replace("{{TEXT}}", text);
     }
 
+    /**
+     * Terminology lookup. Scan type is context, not a template selector: a sonographer searching
+     * for a word does not want a different prompt per scan type, they want the scan they are
+     * reporting on to bias which sense of the word comes back.
+     */
+    public String terminologyPrompt(String query, ScanType scanType, int limit) {
+        ScanTypeDefinitionResponse definition = definitionFor(scanType);
+        String context = scanType == null
+                ? "None given — answer for general ultrasound practice."
+                : displayName(scanType, definition)
+                        + (definition != null ? " (" + definition.getCategory() + ")" : "");
+        return loadTemplate("terminology-search", null, null)
+                .replace("{{query}}", query)
+                .replace("{{scanContext}}", context)
+                .replace("{{limit}}", String.valueOf(limit));
+    }
+
     private ScanTypeDefinitionResponse definitionFor(ScanType scanType) {
         return scanType == null ? null : scanTypeDefinitionService.getDefinition(scanType);
     }

@@ -58,6 +58,12 @@ public class GeminiReportProvider extends AbstractHttpAiProvider {
                 call(settings.impressionModel(), request.prompt(), GRAMMAR_SCHEMA), originalText);
     }
 
+    @Override
+    public AiTerminologyResult searchTerminology(AiProviderRequest request) {
+        return parseTerminologyPayload(
+                call(settings.impressionModel(), request.prompt(), TERMINOLOGY_SCHEMA));
+    }
+
     private ProviderPayload call(String model, String prompt, String schema) {
         return postJson(settings, generateContentUrl(model), model, buildBody(prompt, schema),
                 Map.of("x-goog-api-key", settings.apiKey()));
@@ -164,6 +170,32 @@ public class GeminiReportProvider extends AbstractHttpAiProvider {
                 }
               },
               "required": ["correctedText", "corrections"]
+            }
+            """;
+
+    private static final String TERMINOLOGY_SCHEMA = """
+            {
+              "type": "OBJECT",
+              "properties": {
+                "matches": {
+                  "type": "ARRAY",
+                  "items": {
+                    "type": "OBJECT",
+                    "properties": {
+                      "term": { "type": "STRING" },
+                      "definition": { "type": "STRING" },
+                      "category": { "type": "STRING" },
+                      "synonyms": { "type": "ARRAY", "items": { "type": "STRING" } },
+                      "confusedWith": { "type": "ARRAY", "items": { "type": "STRING" } },
+                      "exampleUsage": { "type": "STRING" },
+                      "relevance": { "type": "NUMBER" }
+                    },
+                    "required": ["term", "definition", "category", "synonyms",
+                                 "confusedWith", "exampleUsage", "relevance"]
+                  }
+                }
+              },
+              "required": ["matches"]
             }
             """;
 }

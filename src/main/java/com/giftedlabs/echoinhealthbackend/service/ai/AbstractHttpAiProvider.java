@@ -280,6 +280,54 @@ abstract class AbstractHttpAiProvider implements AiReportProvider {
                 payload.inputTokens(), payload.outputTokens());
     }
 
+    /**
+     * Parses the terminology-lookup document.
+     *
+     * <p>Empty results are a legitimate answer, not a failure: asking for a term that does not
+     * exist should return nothing rather than provoke a retry against the fallback provider. That
+     * is the opposite of {@link #parseStructuredPayload}, where empty findings mean the model
+     * produced nothing useful and trying the other provider is worth the latency.
+     */
+    protected AiTerminologyResult parseTerminologyPayload(ProviderPayload payload) {
+        JsonNode parsed = readJson(payload.text());
+
+        List<AiTerminologyResult.Match> matches = new java.util.ArrayList<>();
+        for (JsonNode node : parsed.path("matches")) {
+            String term = node.path("term").asText("");
+            String definition = node.path("definition").asText("");
+            if (term.isBlank() || definition.isBlank()) {
+                continue;
+            }
+            matches.add(AiTerminologyResult.Match.builder()
+                    .term(term)
+                    .definition(definition)
+                    .category(node.path("category").asText(""))
+                    .synonyms(stringList(node.get("synonyms")))
+                    .confusedWith(stringList(node.get("confusedWith")))
+                    .exampleUsage(node.path("exampleUsage").asText(""))
+                    .relevance(node.path("relevance").isNumber() ? node.path("relevance").asDouble() : null)
+                    .build());
+        }
+
+        return AiTerminologyResult.builder()
+                .matches(List.copyOf(matches))
+                .provider(providerType().name())
+                .model(payload.model())
+                .inputTokens(payload.inputTokens())
+                .outputTokens(payload.outputTokens())
+                .build();
+    }
+
+    private List<String> stringList(JsonNode node) {
+        if (node == null || !node.isArray()) {
+            return List.of();
+        }
+        return java.util.stream.StreamSupport.stream(node.spliterator(), false)
+                .map(JsonNode::asText)
+                .filter(value -> value != null && !value.isBlank())
+                .toList();
+    }
+
     private JsonNode readJson(String payload) {
         try {
             return objectMapper.readTree(payload);

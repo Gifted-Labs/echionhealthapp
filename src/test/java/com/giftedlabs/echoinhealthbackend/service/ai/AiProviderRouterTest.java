@@ -56,6 +56,15 @@ class AiProviderRouterTest {
         }
 
         @Override
+        public AiTerminologyResult searchTerminology(AiProviderRequest request) {
+            return AiTerminologyResult.builder()
+                    .matches(java.util.List.of())
+                    .provider(providerType.name())
+                    .model("test-model")
+                    .build();
+        }
+
+        @Override
         public AiGrammarCheckResult checkGrammar(AiProviderRequest request, String originalText) {
             return new AiGrammarCheckResult(originalText, originalText, java.util.List.of(),
                     providerType.name(), "stub-model", null, null);

@@ -56,6 +56,12 @@ public class OpenAiReportProvider extends AbstractHttpAiProvider {
                 originalText);
     }
 
+    @Override
+    public AiTerminologyResult searchTerminology(AiProviderRequest request) {
+        return parseTerminologyPayload(
+                call(settings.impressionModel(), request.prompt(), "terminology_search", TERMINOLOGY_SCHEMA));
+    }
+
     private ProviderPayload call(String model, String prompt, String schemaName, String schema) {
         return postJson(settings, settings.endpoint(), model,
                 buildBody(model, prompt, schemaName, schema),
@@ -178,6 +184,34 @@ public class OpenAiReportProvider extends AbstractHttpAiProvider {
                 }
               },
               "required": ["correctedText", "corrections"],
+              "additionalProperties": false
+            }
+            """;
+
+    private static final String TERMINOLOGY_SCHEMA = """
+            {
+              "type": "object",
+              "properties": {
+                "matches": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "term": { "type": "string" },
+                      "definition": { "type": "string" },
+                      "category": { "type": "string" },
+                      "synonyms": { "type": "array", "items": { "type": "string" } },
+                      "confusedWith": { "type": "array", "items": { "type": "string" } },
+                      "exampleUsage": { "type": "string" },
+                      "relevance": { "type": "number" }
+                    },
+                    "required": ["term", "definition", "category", "synonyms",
+                                 "confusedWith", "exampleUsage", "relevance"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["matches"],
               "additionalProperties": false
             }
             """;

@@ -177,6 +177,12 @@ encryption:
 # with no graceful degradation. Use POST /api/admin/ai/verify to confirm live wiring.
 ai:
   default-provider: ${AI_DEFAULT_PROVIDER:GEMINI}
+  terminology:
+    # Credits an uncached terminology lookup costs. Cache hits are always free, so this is the
+    # price of a term the platform has not seen in 24 hours rather than the price of a keystroke.
+    # It is configurable because adding a second consumer of the monthly allowance changes what
+    # each tier is worth.
+    credit-cost: ${AI_TERMINOLOGY_CREDIT_COST:1}
   fallback-provider: ${AI_FALLBACK_PROVIDER:OPENAI}
   allow-fallback: ${AI_ALLOW_FALLBACK:true}
   # Log full AI request/response bodies on success. Failure responses are ALWAYS logged in full
