@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.giftedlabs.echoinhealthbackend.dto.vault.*;
+import com.giftedlabs.echoinhealthbackend.entity.ScanType;
 import com.giftedlabs.echoinhealthbackend.entity.ReportTemplate;
 import com.giftedlabs.echoinhealthbackend.entity.SharedTemplate;
 import com.giftedlabs.echoinhealthbackend.entity.TemplateVersion;
@@ -425,6 +426,28 @@ public class TemplateService {
                         request.getCreatedAfter(),
                         request.getCreatedBefore(),
                         sorted)
+                .map(this::mapToResponse);
+    }
+
+    /**
+     * Matches templates against any of a set of expanded clinical terms, ranked by how many each
+     * hits. The caller owns deciding what the terms are; this owns applying them inside the
+     * tenant boundary.
+     */
+    @Transactional(readOnly = true)
+    public Page<TemplateResponse> semanticSearch(List<String> terms, ScanType scanType,
+                                                 String userId, Pageable pageable) {
+        User user = requireUser(userId);
+        String[] patterns = terms.stream()
+                .map(term -> "%" + term.toLowerCase(Locale.ROOT) + "%")
+                .toArray(String[]::new);
+
+        return templateRepository.semanticSearch(
+                        userId,
+                        user.getOrganizationId(),
+                        scanType != null ? scanType.name() : null,
+                        patterns,
+                        pageable)
                 .map(this::mapToResponse);
     }
 

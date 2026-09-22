@@ -134,6 +134,77 @@ public interface ReportTemplateRepository extends JpaRepository<ReportTemplate, 
                                          Pageable pageable);
 
     /**
+     * Semantic search: matches a template against <em>any</em> of a set of expanded clinical
+     * terms, ranked by how many of them it hits.
+     *
+     * <p>The tenant and sharing scope is identical to {@link #searchTemplates} and deliberately
+     * duplicated rather than factored out — this is the boundary that keeps one hospital out of
+     * another's vault, and a shared fragment that someone later edits for one caller would move
+     * it for both.
+     *
+     * <p>Ranking is the count of distinct expanded terms a template matches, not a text-similarity
+     * score. A template that mentions both "hydronephrosis" and "pelvicalyceal dilatation" is a
+     * better answer for "swollen kidney" than one mentioning either alone, and counting says so
+     * without needing a vector.
+     */
+    @Query(value = """
+            SELECT t.* FROM report_templates t
+            WHERE t.is_active = true
+              AND (
+                    (t.user_id = :userId AND t.organization_id = :organizationId)
+                 OR (t.user_id IS NULL AND t.organization_id IS NULL)
+                 OR EXISTS (SELECT 1 FROM shared_templates st
+                             WHERE st.template_id = t.id
+                               AND st.recipient_id = :userId
+                               AND st.organization_id = :organizationId)
+              )
+              AND (CAST(:scanType AS VARCHAR) IS NULL OR t.scan_type = CAST(:scanType AS VARCHAR))
+              AND EXISTS (
+                    SELECT 1 FROM unnest(CAST(:patterns AS text[])) AS p
+                    WHERE LOWER(t.name) LIKE p
+                       OR LOWER(COALESCE(t.description, '')) LIKE p
+                       OR LOWER(COALESCE(t.default_findings, '')) LIKE p
+                       OR LOWER(COALESCE(t.default_impression, '')) LIKE p
+                       OR LOWER(COALESCE(t.category, '')) LIKE p
+              )
+            ORDER BY (
+                    SELECT COUNT(*) FROM unnest(CAST(:patterns AS text[])) AS p
+                    WHERE LOWER(t.name) LIKE p
+                       OR LOWER(COALESCE(t.description, '')) LIKE p
+                       OR LOWER(COALESCE(t.default_findings, '')) LIKE p
+                       OR LOWER(COALESCE(t.default_impression, '')) LIKE p
+                       OR LOWER(COALESCE(t.category, '')) LIKE p
+            ) DESC, t.updated_at DESC NULLS LAST, t.id
+            """,
+            countQuery = """
+            SELECT COUNT(*) FROM report_templates t
+            WHERE t.is_active = true
+              AND (
+                    (t.user_id = :userId AND t.organization_id = :organizationId)
+                 OR (t.user_id IS NULL AND t.organization_id IS NULL)
+                 OR EXISTS (SELECT 1 FROM shared_templates st
+                             WHERE st.template_id = t.id
+                               AND st.recipient_id = :userId
+                               AND st.organization_id = :organizationId)
+              )
+              AND (CAST(:scanType AS VARCHAR) IS NULL OR t.scan_type = CAST(:scanType AS VARCHAR))
+              AND EXISTS (
+                    SELECT 1 FROM unnest(CAST(:patterns AS text[])) AS p
+                    WHERE LOWER(t.name) LIKE p
+                       OR LOWER(COALESCE(t.description, '')) LIKE p
+                       OR LOWER(COALESCE(t.default_findings, '')) LIKE p
+                       OR LOWER(COALESCE(t.default_impression, '')) LIKE p
+                       OR LOWER(COALESCE(t.category, '')) LIKE p
+              )
+            """,
+            nativeQuery = true)
+    Page<ReportTemplate> semanticSearch(@Param("userId") String userId,
+                                        @Param("organizationId") String organizationId,
+                                        @Param("scanType") String scanType,
+                                        @Param("patterns") String[] patterns,
+                                        Pageable pageable);
+
+    /**
      * Counts every template whose blob still exists, including soft-deleted ones. Filtering on
      * {@code isActive} instead would let deleted templates stop counting while their bytes were
      * still sitting in object storage, so reported usage drifted below real consumption.
