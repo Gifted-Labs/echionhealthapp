@@ -1,5 +1,7 @@
 package com.giftedlabs.echoinhealthbackend.service;
 
+import com.giftedlabs.echoinhealthbackend.config.EmailConfigurationChecker;
+import com.giftedlabs.echoinhealthbackend.config.EmailConfigurationStatus;
 import com.giftedlabs.echoinhealthbackend.dto.admin.AdminUserResponse;
 import com.giftedlabs.echoinhealthbackend.dto.admin.AuditLogResponse;
 import com.giftedlabs.echoinhealthbackend.dto.platform.*;
@@ -54,6 +56,7 @@ public class PlatformService {
     private final SharedScanRepository sharedScanRepository;
     private final ReportTemplateRepository reportTemplateRepository;
     private final EmailOutboxRepository emailOutboxRepository;
+    private final EmailConfigurationChecker emailConfigurationChecker;
 
     private final BillingService billingService;
     private final AuditService auditService;
@@ -435,11 +438,25 @@ public class PlatformService {
         long failedEmails = emailOutboxRepository.countByStatus(EmailDeliveryStatus.FAILED);
         long pendingEmails = emailOutboxRepository.countByStatus(EmailDeliveryStatus.PENDING)
                 + emailOutboxRepository.countByStatus(EmailDeliveryStatus.RETRYING);
+
+        // A misconfigured sender no longer aborts startup, so this is where an operator finds out.
+        // It outranks the outbox counters: if the configuration is wrong nothing can send at all,
+        // and the failure count merely says how much has piled up behind that.
+        EmailConfigurationStatus emailConfig = emailConfigurationChecker.check();
+        String emailStatus;
+        String emailDetail;
+        if (!emailConfig.valid()) {
+            emailStatus = "DOWN";
+            emailDetail = emailConfig.problem();
+        } else {
+            emailStatus = failedEmails > 0 ? "DEGRADED" : "UP";
+            emailDetail = String.format("%s; %d failed, %d awaiting retry",
+                    emailConfig.summary(), failedEmails, pendingEmails);
+        }
         components.add(PlatformHealthResponse.ComponentHealth.builder()
                 .name("email")
-                .status(failedEmails > 0 ? "DEGRADED" : "UP")
-                .detail(String.format("sending from %s; %d failed, %d awaiting retry",
-                        configuredFromAddress, failedEmails, pendingEmails))
+                .status(emailStatus)
+                .detail(emailDetail)
                 .build());
 
         String overall = components.stream().anyMatch(c -> "DOWN".equals(c.getStatus())) ? "DOWN"

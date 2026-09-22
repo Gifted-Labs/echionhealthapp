@@ -1,84 +1,71 @@
 package com.giftedlabs.echoinhealthbackend.config;
 
 import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 /**
- * Fails startup when outbound email cannot possibly work.
+ * Reports outbound email misconfiguration at startup, loudly.
  *
  * <p>Mail was previously sent from a domain unrelated to the product, which the provider rejects
- * for lack of domain verification. Because every send was wrapped in a swallowed catch, the
- * rejection was invisible and the symptom reached the client as "onboarding sends no email". A
- * misconfigured sender is a deployment error, so it belongs at boot rather than in a log line
- * nobody reads.
+ * for lack of domain verification, and every send was wrapped in a swallowed catch — so the
+ * rejection was invisible and the symptom reached the client as "onboarding sends no email".
+ *
+ * <p>The first fix for that made a bad sender address abort startup. That over-corrected: it turned
+ * a degraded feature into a total outage, taking reporting, the vault, AI and every clinical
+ * workflow down because onboarding email might not arrive. The invisibility problem it was really
+ * guarding against is now solved elsewhere — {@code EmailOutboxEntry} records every attempt with
+ * the provider's verdict, and the platform health endpoint surfaces it — so the remaining job here
+ * is to make the misconfiguration impossible to miss, not to refuse to serve patients over it.
+ *
+ * <p>Set {@code email.validation.fail-fast=true} to restore aborting startup, for environments that
+ * would rather not run at all than run without email.
  */
 @Component
 @Profile("!test")
+@RequiredArgsConstructor
 @Slf4j
 public class EmailConfigurationValidator {
 
-    /** Matches either {@code user@host} or {@code Display Name <user@host>}. */
-    private static final Pattern FROM_PATTERN =
-            Pattern.compile("^(?:[^<>]*<\\s*)?([^<>@\\s]+)@([^<>@\\s]+\\.[^<>@\\s]+)\\s*>?$");
+    private final EmailConfigurationChecker checker;
 
-    @Value("${email.from:}")
-    private String fromAddress;
-
-    @Value("${email.resend.api-key:}")
-    private String apiKey;
-
-    /**
-     * Domain the sender address must belong to. Set it to the domain verified with the email
-     * provider; leaving it blank downgrades the check to a warning, which suits local development.
-     */
-    @Value("${email.verified-domain:}")
-    private String verifiedDomain;
+    @Value("${email.validation.fail-fast:false}")
+    private boolean failFast;
 
     @PostConstruct
     public void validate() {
-        String from = fromAddress == null ? "" : fromAddress.trim();
+        EmailConfigurationStatus status = checker.check();
 
-        if (from.isEmpty()) {
-            throw new IllegalStateException(
-                    "EMAIL_FROM must be configured; without it no transactional email can be sent");
-        }
-
-        Matcher matcher = FROM_PATTERN.matcher(from);
-        if (!matcher.matches()) {
-            throw new IllegalStateException(
-                    "EMAIL_FROM is not a valid sender address: '" + from + "'. "
-                            + "Expected 'user@domain' or 'Display Name <user@domain>'");
-        }
-
-        String senderDomain = matcher.group(2).toLowerCase();
-
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException(
-                    "RESEND_API_KEY must be configured; without it every email send is rejected");
-        }
-
-        String expected = verifiedDomain == null ? "" : verifiedDomain.trim().toLowerCase();
-        if (expected.isEmpty()) {
-            log.warn("email.verified-domain is not set, so the sender domain '{}' cannot be checked. "
-                    + "If it is not verified with the email provider, every send will be rejected.",
-                    senderDomain);
+        if (status.valid()) {
+            if (status.warning() != null) {
+                log.warn("Outbound email: {}", status.warning());
+            }
+            log.info("Outbound email configured: sending from '{}' on verified domain '{}'",
+                    status.fromAddress(), status.senderDomain());
             return;
         }
 
-        if (!senderDomain.equals(expected) && !senderDomain.endsWith("." + expected)) {
-            throw new IllegalStateException(String.format(
-                    "EMAIL_FROM sends from '%s' but the verified sending domain is '%s'. "
-                            + "The provider rejects mail from unverified domains, so onboarding and "
-                            + "verification email would silently never arrive.",
-                    senderDomain, expected));
+        if (failFast) {
+            throw new IllegalStateException(status.problem());
         }
 
-        log.info("Outbound email configured: sending from '{}' on verified domain '{}'", from, expected);
+        log.error("""
+
+                ===============================================================================
+                 OUTBOUND EMAIL IS MISCONFIGURED — the application is starting anyway.
+                ===============================================================================
+                 {}
+
+                 Until this is fixed: registration, verification, onboarding, password reset
+                 and quota alert email will NOT be delivered. Every failed attempt is recorded
+                 in the email outbox, and GET /api/admin/platform/health reports this component
+                 as DOWN with the same message.
+
+                 Set email.validation.fail-fast=true to abort startup on this instead.
+                ===============================================================================
+                """, status.problem());
     }
 }

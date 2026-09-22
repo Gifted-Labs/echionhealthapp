@@ -81,6 +81,13 @@ email:
   retry:
     interval-ms: ${EMAIL_RETRY_INTERVAL_MS:120000}
     initial-delay-ms: ${EMAIL_RETRY_INITIAL_DELAY_MS:60000}
+  validation:
+    # Whether a misconfigured sender aborts startup. Off by default: email is one feature, and
+    # refusing to boot takes reporting, the vault and AI down with it. A misconfiguration is
+    # logged as an unmissable ERROR banner at startup and reported as DOWN by
+    # GET /api/admin/platform/health, so it cannot pass unnoticed either way. Turn this on in an
+    # environment that would rather not run at all than run without email.
+    fail-fast: ${EMAIL_VALIDATION_FAIL_FAST:false}
 
 # Application Configuration
 app:
