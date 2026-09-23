@@ -2,8 +2,9 @@ package com.giftedlabs.echoinhealthbackend.service;
 
 import com.giftedlabs.echoinhealthbackend.config.StorageConfig;
 import com.giftedlabs.echoinhealthbackend.entity.StorageType;
-import com.giftedlabs.echoinhealthbackend.exception.InvalidTokenException;
+import com.giftedlabs.echoinhealthbackend.exception.StorageOperationException;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -12,8 +13,10 @@ import org.springframework.web.multipart.MultipartFile;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetUrlRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -59,6 +62,7 @@ public class FileStorageService {
     }
 
     private void initializeS3Client() {
+        validateR2Configuration();
         try {
             // Cloudflare R2 S3 compatible storage requires endpoint override
             String endpoint = storageConfig.getR2().getEndpoint();
@@ -70,6 +74,13 @@ public class FileStorageService {
             this.s3Client = S3Client.builder()
                     .endpointOverride(URI.create(endpoint))
                     .region(Region.of(storageConfig.getR2().getRegion()))
+                    // Cloudflare's Java SDK guidance requires path-style requests and disables
+                    // the SDK's streaming/chunked SigV4 mode, which R2 rejects with a signature
+                    // mismatch for PutObject requests.
+                    .serviceConfiguration(S3Configuration.builder()
+                            .pathStyleAccessEnabled(true)
+                            .chunkedEncodingEnabled(false)
+                            .build())
                     .credentialsProvider(StaticCredentialsProvider.create(
                             AwsBasicCredentials.create(
                                     storageConfig.getR2().getAccessKey(),
@@ -77,8 +88,23 @@ public class FileStorageService {
                     .build();
             log.info("Initialized R2/S3 storage client");
         } catch (Exception e) {
-            log.error("Failed to initialize S3 client, falling back to local storage", e);
-            initializeLocalStorage();
+            // Never silently store production uploads on an instance filesystem when R2 was
+            // explicitly requested. A bad endpoint or credential must fail startup visibly.
+            throw new IllegalStateException("Could not initialize configured R2 storage", e);
+        }
+    }
+
+    private void validateR2Configuration() {
+        requireR2Value(storageConfig.getR2().getEndpoint(), "storage.r2.endpoint");
+        requireR2Value(storageConfig.getR2().getBucket(), "storage.r2.bucket");
+        requireR2Value(storageConfig.getR2().getAccessKey(), "storage.r2.access-key");
+        requireR2Value(storageConfig.getR2().getSecretKey(), "storage.r2.secret-key");
+        requireR2Value(storageConfig.getR2().getRegion(), "storage.r2.region");
+    }
+
+    private void requireR2Value(String value, String propertyName) {
+        if (!StringUtils.hasText(value)) {
+            throw new IllegalStateException(propertyName + " is required when storage.type=r2");
         }
     }
 
@@ -96,8 +122,11 @@ public class FileStorageService {
             } else {
                 return saveLocally(filename, file);
             }
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to store file " + filename, e);
+        } catch (IOException | SdkException e) {
+            log.error("Failed to store object {} using {} storage", filename,
+                    storageConfig.getType(), e);
+            throw new StorageOperationException(
+                    "File storage is temporarily unavailable. Please retry the upload.", e);
         }
     }
 
@@ -214,6 +243,13 @@ public class FileStorageService {
                 throw new IOException("File not found: " + filePath);
             }
             return Files.readAllBytes(path);
+        }
+    }
+
+    @PreDestroy
+    void close() {
+        if (s3Client != null) {
+            s3Client.close();
         }
     }
 }

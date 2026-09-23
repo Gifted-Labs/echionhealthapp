@@ -11,7 +11,6 @@ import com.giftedlabs.echoinhealthbackend.security.CurrentUserService;
 import com.giftedlabs.echoinhealthbackend.service.AiReportGenerationService;
 import com.giftedlabs.echoinhealthbackend.service.GrammarCheckService;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import com.giftedlabs.echoinhealthbackend.security.RoleGroups;
@@ -36,7 +35,6 @@ public class AiReportController {
     private final CurrentUserService currentUserService;
 
     @PostMapping("/grammar-check")
-    @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Auto-Grammar Check (Pro/Ultimate)",
             description = "Reviews report prose for grammar, spelling and register without altering "
                     + "clinical content. Returns suggested edits; nothing is applied automatically.")
@@ -49,7 +47,6 @@ public class AiReportController {
     }
 
     @PostMapping
-    @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Generate structured report", description = "Generate findings, impression, and recommendations from raw scan notes")
     public ResponseEntity<ApiResponse<GenerateAiReportResponse>> generateReport(
             @Valid @RequestBody GenerateAiReportRequest request,
@@ -60,7 +57,6 @@ public class AiReportController {
     }
 
     @PostMapping("/suggest-impression")
-    @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Suggest impression", description = "Generate an AI-assisted impression from findings")
     public ResponseEntity<ApiResponse<AiSuggestImpressionResponse>> suggestImpression(
             @Valid @RequestBody AiSuggestImpressionRequest request,

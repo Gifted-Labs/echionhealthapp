@@ -5,7 +5,7 @@ import com.giftedlabs.echoinhealthbackend.dto.common.ApiResponse;
 import com.giftedlabs.echoinhealthbackend.service.AuthService;
 import com.giftedlabs.echoinhealthbackend.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import com.giftedlabs.echoinhealthbackend.security.RoleGroups;
@@ -34,6 +34,7 @@ public class AuthController {
      * Register a new user
      */
     @PostMapping("/register")
+    @SecurityRequirements
     @Operation(summary = "Register a new organization", description = "Create an organization and auto-provision its first hospital administrator.")
     public ResponseEntity<ApiResponse<Void>> register(@Valid @RequestBody RegisterRequest request) {
         authService.register(request);
@@ -48,6 +49,7 @@ public class AuthController {
      * Verify email with token
      */
     @PostMapping("/verify-email")
+    @SecurityRequirements
     @Operation(summary = "Verify email address", description = "Verify email using the token sent to the user's email")
     public ResponseEntity<ApiResponse<Void>> verifyEmail(@RequestParam String token) {
         authService.verifyEmail(token);
@@ -60,6 +62,7 @@ public class AuthController {
      * Resend verification email
      */
     @PostMapping("/resend-verification")
+    @SecurityRequirements
     @Operation(summary = "Resend verification email", description = "Request a new verification email")
     public ResponseEntity<ApiResponse<Void>> resendVerification(@RequestParam String email) {
         authService.resendVerificationEmail(email);
@@ -72,6 +75,7 @@ public class AuthController {
      * Login user
      */
     @PostMapping("/login")
+    @SecurityRequirements
     @Operation(summary = "Login", description = "Authenticate using email, or using username plus organization name, and receive JWT tokens")
     public ResponseEntity<ApiResponse<AuthResponse>> login(@Valid @RequestBody LoginRequest request) {
         AuthResponse authResponse = authService.login(request);
@@ -82,6 +86,7 @@ public class AuthController {
      * Refresh access token
      */
     @PostMapping("/refresh")
+    @SecurityRequirements
     @Operation(summary = "Refresh access token", description = "Get a new access token using refresh token")
     public ResponseEntity<ApiResponse<AuthResponse>> refreshToken(
             @Valid @RequestBody RefreshTokenRequest request) {
@@ -93,7 +98,6 @@ public class AuthController {
      * Logout user
      */
     @PostMapping("/logout")
-    @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Logout", description = "Logout user and revoke refresh token")
     public ResponseEntity<ApiResponse<Void>> logout(
             Authentication authentication,
@@ -108,7 +112,6 @@ public class AuthController {
      */
     @GetMapping("/profile")
     @PreAuthorize(RoleGroups.CLINICAL)
-    @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Get user profile", description = "Get current authenticated user's profile")
     public ResponseEntity<ApiResponse<UserProfileResponse>> getProfile(Authentication authentication) {
         String email = authentication.getName();
@@ -125,7 +128,6 @@ public class AuthController {
      */
     @GetMapping("/permissions")
     @PreAuthorize("isAuthenticated()")
-    @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Get my permissions",
             description = "Capability keys held by the signed-in user, for UI gating")
     public ResponseEntity<ApiResponse<PermissionsResponse>> getPermissions(Authentication authentication) {
@@ -138,7 +140,6 @@ public class AuthController {
      */
     @PostMapping("/complete-profile")
     @PreAuthorize(RoleGroups.CLINICAL)
-    @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Complete profile", description = "Add professional details (phone, hospital, department, serviceNumber)")
     public ResponseEntity<ApiResponse<UserProfileResponse>> completeProfile(
             Authentication authentication,
@@ -155,7 +156,6 @@ public class AuthController {
      */
     @PatchMapping("/profile")
     @PreAuthorize(RoleGroups.CLINICAL)
-    @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Update profile", description = "Update any profile fields (partial update)")
     public ResponseEntity<ApiResponse<UserProfileResponse>> updateProfile(
             Authentication authentication,
@@ -169,7 +169,6 @@ public class AuthController {
 
     @GetMapping("/mfa")
     @PreAuthorize(RoleGroups.CLINICAL)
-    @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Get MFA status", description = "Check whether TOTP MFA is enabled for the current user")
     public ResponseEntity<ApiResponse<MfaStatusResponse>> getMfaStatus(Authentication authentication) {
         return ResponseEntity.ok(ApiResponse.success(authService.getMfaStatus(authentication.getName())));
@@ -177,7 +176,6 @@ public class AuthController {
 
     @PostMapping("/mfa/setup")
     @PreAuthorize(RoleGroups.CLINICAL)
-    @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Begin MFA setup", description = "Generate a TOTP secret and otpauth URL for an authenticator app")
     public ResponseEntity<ApiResponse<MfaSetupResponse>> beginMfaSetup(Authentication authentication) {
         return ResponseEntity.ok(ApiResponse.success(
@@ -187,7 +185,6 @@ public class AuthController {
 
     @PostMapping("/mfa/enable")
     @PreAuthorize(RoleGroups.CLINICAL)
-    @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Enable MFA", description = "Verify a TOTP code and enable MFA for the current user")
     public ResponseEntity<ApiResponse<MfaStatusResponse>> enableMfa(
             Authentication authentication,
@@ -199,7 +196,6 @@ public class AuthController {
 
     @PostMapping("/mfa/disable")
     @PreAuthorize(RoleGroups.CLINICAL)
-    @SecurityRequirement(name = "Bearer Authentication")
     @Operation(summary = "Disable MFA", description = "Verify a TOTP code and disable MFA for the current user")
     public ResponseEntity<ApiResponse<MfaStatusResponse>> disableMfa(
             Authentication authentication,

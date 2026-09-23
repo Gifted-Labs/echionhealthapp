@@ -58,6 +58,9 @@ class TemplateServiceTest {
     @Mock
     private AuditService auditService;
 
+    @Mock
+    private StorageTransactionCoordinator storageTransactionCoordinator;
+
     private TemplateService templateService;
 
     @BeforeEach
@@ -73,7 +76,8 @@ class TemplateServiceTest {
                 new ObjectMapper(),
                 billingService,
                 fileValidationService,
-                auditService);
+                auditService,
+                storageTransactionCoordinator);
     }
 
     @Test

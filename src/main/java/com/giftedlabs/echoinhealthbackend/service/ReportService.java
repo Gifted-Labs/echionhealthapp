@@ -6,6 +6,7 @@ import com.giftedlabs.echoinhealthbackend.dto.vault.*;
 import com.giftedlabs.echoinhealthbackend.entity.*;
 import com.giftedlabs.echoinhealthbackend.exception.FieldValidationException;
 import com.giftedlabs.echoinhealthbackend.exception.ResourceNotFoundException;
+import com.giftedlabs.echoinhealthbackend.exception.StorageOperationException;
 import com.giftedlabs.echoinhealthbackend.repository.ReportRepository;
 import com.giftedlabs.echoinhealthbackend.repository.ReportVersionRepository;
 import com.giftedlabs.echoinhealthbackend.repository.UserRepository;
@@ -51,6 +52,7 @@ public class ReportService {
     private final ReportAuthoringHelperService reportAuthoringHelperService;
     private final BillingService billingService;
     private final FileValidationService fileValidationService;
+    private final StorageTransactionCoordinator storageTransactionCoordinator;
 
     // ========== Upload Operations ==========
 
@@ -71,6 +73,7 @@ public class ReportService {
 
         // Store file
         String filePath = fileStorageService.storeFile(file, user.getOrganizationId(), userId);
+        storageTransactionCoordinator.deleteOnRollback(filePath);
         StorageType storageType = fileStorageService.getCurrentStorageType();
 
         // Extract text from document
@@ -281,6 +284,11 @@ public class ReportService {
         Report report = reportRepository.findByIdAndUserIdAndOrganizationId(reportId, userId, currentOrganizationId(userId))
                 .orElseThrow(() -> new ResourceNotFoundException("Report not found"));
 
+        if (report.getFilePath() != null && !report.getFilePath().isBlank()
+                && !fileStorageService.deleteFile(report.getFilePath())) {
+            throw new StorageOperationException(
+                    "The report file could not be removed from storage. Please retry.", null);
+        }
         reportRepository.delete(report);
         auditService.logAction(report.getUser(), "report_deleted", "Deleted report: " + reportId);
     }

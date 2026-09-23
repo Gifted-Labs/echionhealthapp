@@ -8,6 +8,8 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.HashMap;
@@ -133,6 +135,35 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(ApiResponse.error(ex.getMessage()));
+    }
+
+    @ExceptionHandler(StorageOperationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleStorageOperation(StorageOperationException ex) {
+        log.error("Object storage operation failed", ex);
+        return ResponseEntity
+                .status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(ApiResponse.error(ex.getMessage()));
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMaxUploadSizeExceeded(MaxUploadSizeExceededException ex) {
+        return ResponseEntity
+                .status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(ApiResponse.error("The uploaded file exceeds the maximum allowed size."));
+    }
+
+    /**
+     * Multipart parsing happens in the servlet container before a controller is invoked. A
+     * malformed request (most commonly a manually-set multipart Content-Type without a boundary)
+     * is therefore a client error, not an internal server failure.
+     */
+    @ExceptionHandler(MultipartException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMultipart(MultipartException ex) {
+        log.warn("Rejected malformed multipart request: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(
+                        "Invalid multipart upload. Send the file as FormData and let the client set Content-Type with its boundary."));
     }
 
     @ExceptionHandler(AuthenticationRateLimitException.class)

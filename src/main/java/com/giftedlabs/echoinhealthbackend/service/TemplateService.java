@@ -60,6 +60,7 @@ public class TemplateService {
     private final BillingService billingService;
     private final FileValidationService fileValidationService;
     private final AuditService auditService;
+    private final StorageTransactionCoordinator storageTransactionCoordinator;
 
     @Transactional
     @CacheEvict(value = TEMPLATES, key = "#userId")
@@ -116,6 +117,7 @@ public class TemplateService {
         billingService.assertStorageCapacity(user.getOrganization(), file.getSize());
         String strippedText = stripPhi(extractedText);
         String filePath = fileStorageService.storeFile(file, user.getOrganizationId(), userId);
+        storageTransactionCoordinator.deleteOnRollback(filePath);
         var scanType = parseScanType(scanTypeStr);
         String originalFilename = stripPhi(file.getOriginalFilename());
 

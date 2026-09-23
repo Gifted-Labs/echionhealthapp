@@ -13,6 +13,7 @@ import com.giftedlabs.echoinhealthbackend.security.CurrentUserService;
 import com.giftedlabs.echoinhealthbackend.service.CollaborationService;
 import com.giftedlabs.echoinhealthbackend.service.NotificationService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import com.giftedlabs.echoinhealthbackend.security.RoleGroups;
@@ -261,6 +262,9 @@ public class CollaborationController {
          */
         @GetMapping(path = "/notifications/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
         @PreAuthorize("permitAll()")
+        // Authenticated by the single-use token in the query string, not by a bearer header:
+        // the browser EventSource API cannot set one.
+        @SecurityRequirements
         @Operation(summary = "Subscribe to notifications", description = "Subscribe to real-time notifications via SSE")
         public SseEmitter subscribeToNotifications(
                         @RequestParam(value = "token", required = false) String streamToken,

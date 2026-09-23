@@ -12,6 +12,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Utility for extracting text from various document formats
@@ -26,42 +27,34 @@ public class TextExtractor {
      * Extract text from a multipart file based on its content type
      */
     public String extractText(MultipartFile file) {
-        String contentType;
-        try {
-            contentType = tika.detect(file.getInputStream());
-        } catch (IOException e) {
-            log.error("Failed to detect content type", e);
+        if (file == null || file.isEmpty()) {
             return "";
         }
 
-        try (InputStream inputStream = file.getInputStream()) {
-            if (contentType.equals("application/pdf")) {
-                return extractTextFromPdf(inputStream);
-            } else if (contentType.equals("application/vnd.openxmlformats-officedocument.wordprocessingml.document") ||
-                    contentType.equals("application/msword")) {
-                // Note: POI support for old .doc (HWPF) requires poi-scratchpad, assume .docx
-                // (XWPF) for now
-                // or handle both if dependencies are added. The pom added poi and poi-ooxml.
-                // Standard poi supports .doc, poi-ooxml supports .docx.
-                // For simplicity and common use, focusing on .docx XWPF.
-                // To support classic .doc, we would need HWPFDocument.
-                // Given "application/msword" usually maps to .doc, we should check magic bytes
-                // or strict handling.
-                // For now, let's try XWPF and fallback or error if it's old OLE2 format.
-                try {
-                    return extractTextFromWord(inputStream);
-                } catch (Exception e) {
-                    log.warn("Failed to extract as .docx, might be .doc or other format", e);
-                    return "";
+        try {
+            // Read once because servlet-backed multipart streams are not guaranteed to be
+            // repeatable. Supplying the filename also lets Tika distinguish OOXML containers
+            // from an ordinary ZIP when their package metadata is unusual.
+            byte[] content = file.getBytes();
+            String contentType = tika.detect(content, file.getOriginalFilename());
+
+            try (InputStream inputStream = new java.io.ByteArrayInputStream(content)) {
+                if ("application/pdf".equals(contentType)) {
+                    return extractTextFromPdf(inputStream);
                 }
-            } else if (contentType.equals("text/plain")) {
-                return new String(inputStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-            } else {
+                if ("application/vnd.openxmlformats-officedocument.wordprocessingml.document".equals(contentType)
+                        || "application/x-tika-ooxml".equals(contentType)) {
+                    return extractTextFromWord(inputStream);
+                }
+                if ("text/plain".equals(contentType)) {
+                    return new String(content, StandardCharsets.UTF_8);
+                }
+
                 log.warn("Unsupported content type for text extraction: {}", contentType);
                 return "";
             }
         } catch (IOException e) {
-            log.error("Error reading file stream", e);
+            log.error("Could not read uploaded document for text extraction", e);
             return "";
         }
     }

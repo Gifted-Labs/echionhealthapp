@@ -95,7 +95,9 @@ public class Report {
     @Column(name = "file_size")
     private Long fileSize;
 
-    @Column(name = "file_type", length = 50)
+    // The official DOCX media type is 71 characters long. VARCHAR(50) caused every
+    // correctly-declared DOCX report upload to fail during the database insert.
+    @Column(name = "file_type", length = 255)
     private String fileType;
 
     @Enumerated(EnumType.STRING)
